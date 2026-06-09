@@ -243,10 +243,12 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem" id="annual-breakdowns-grid">
       <div class="card" style="margin-bottom:0">
         <div class="card-title">Gastos por categoría — año completo</div>
+        <div style="position:relative;height:200px;margin-bottom:12px"><canvas id="annual-exp-chart"></canvas></div>
         <div id="annual-exp-breakdown"><p style="font-size:13px;color:var(--text2)">Sin datos.</p></div>
       </div>
       <div class="card" style="margin-bottom:0">
         <div class="card-title">Ingresos por fuente — año completo</div>
+        <div style="position:relative;height:200px;margin-bottom:12px"><canvas id="annual-inc-chart"></canvas></div>
         <div id="annual-inc-breakdown"><p style="font-size:13px;color:var(--text2)">Sin datos.</p></div>
       </div>
     </div>
@@ -285,32 +287,45 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <!-- RECURRING IMPORT PANEL -->
     <div id="rec-import-panel" style="display:none"></div>
 
+    <!-- TOP STATS ROW -->
+    <div class="kpi-grid kpi-grid-6" id="monthly-kpis"></div>
+    <div class="card">
+      <div class="progress-block">
+        <div class="progress-header"><span>Gastos como % del ingreso</span><span id="monthly-pct-label">—</span></div>
+        <div class="progress-track"><div class="progress-bar" id="monthly-progress" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div id="missing-panel-wrap"></div>
+
+    <!-- DONUT CHARTS ROW -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem" id="monthly-donuts-grid">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Gastos por categoría</div>
+        <div style="position:relative;height:180px"><canvas id="monthly-exp-donut"></canvas></div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Ingresos por fuente</div>
+        <div style="position:relative;height:180px"><canvas id="monthly-inc-donut"></canvas></div>
+      </div>
+    </div>
+    <style>@media(max-width:640px){#monthly-donuts-grid{grid-template-columns:1fr}}</style>
+
+    <!-- MAIN TWO-COL -->
     <div class="month-layout">
       <div>
-        <div class="kpi-grid kpi-grid-6" id="monthly-kpis"></div>
-
-        <div class="card">
-          <div class="progress-block">
-            <div class="progress-header"><span>Gastos como % del ingreso</span><span id="monthly-pct-label">—</span></div>
-            <div class="progress-track"><div class="progress-bar" id="monthly-progress" style="width:0%"></div></div>
-          </div>
-        </div>
-
-        <div id="missing-panel-wrap"></div>
-
-        <!-- CATEGORY BREAKDOWN WITH DETAIL -->
+        <!-- CATEGORY BREAKDOWN -->
         <div class="card">
           <div class="card-title">Desglose de gastos — haz clic en categoría para ver detalle</div>
           <div id="cat-breakdown"><p style="font-size:13px;color:var(--text2)">Sin gastos registrados.</p></div>
         </div>
-
         <div class="card">
           <div class="card-title">Contexto — últimos 6 meses</div>
           <div class="chart-wrap"><canvas id="monthly-chart"></canvas></div>
         </div>
       </div>
 
-      <div>
+      <!-- SIDEBAR FORMS - full height -->
+      <div style="position:sticky;top:1rem">
         <div class="card">
           <div class="tabs">
             <button class="tab active" onclick="switchTab('ingresos',this)">Ingresos</button>
@@ -331,7 +346,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
             </div>
             <div class="check-row"><label class="check-label"><input type="checkbox" id="inc-rec"> Recurrente</label></div>
             <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="addItem('income')">+ Agregar ingreso</button>
-            <div class="item-list" id="list-income"></div>
+            <div id="list-income-grouped"></div>
             <div class="list-total">Total: <span id="total-income">$0.00</span></div>
           </div>
 
@@ -404,7 +419,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
               <label class="check-label"><input type="checkbox" id="exp-fix"> Precio fijo</label>
             </div>
             <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="addItem('expense')">+ Agregar gasto</button>
-            <div class="item-list" id="list-expense"></div>
+            <div id="list-expense-grouped"></div>
             <div class="list-total">Total: <span id="total-expense">$0.00</span></div>
           </div>
         </div>
@@ -442,7 +457,7 @@ let activeMonth = new Date().getMonth();
 let accessToken = null;
 let driveFileId = null;
 let appData = {};
-let annualChart = null, monthlyChart = null, patChart = null;
+let annualChart = null, monthlyChart = null, patChart = null, annualExpChart = null, annualIncChart = null, monthlyExpDonut = null, monthlyIncDonut = null;
 
 // ── AUTH ──────────────────────────────────────────
 window.onload = function(){
@@ -766,7 +781,6 @@ function renderAnnual(){
 
 // ── ANNUAL BREAKDOWNS ─────────────────────────────
 function renderAnnualBreakdowns(y){
-  // Collect all items for the year
   let allExp=[], allInc=[];
   for(let m=0;m<12;m++){
     const d=getMonth(y,m);
@@ -778,13 +792,23 @@ function renderAnnualBreakdowns(y){
   const totalExp=allExp.reduce((s,i)=>s+i.amount,0);
   const totalInc=allInc.reduce((s,i)=>s+i.amount,0);
 
-  // Expense breakdown by parent category
+  // EXPENSE breakdown
   const expEl=document.getElementById('annual-exp-breakdown');
-  if(!allExp.length){expEl.innerHTML='<p style="font-size:13px;color:var(--text2)">Sin gastos registrados.</p>';}
-  else{
+  if(!allExp.length){
+    expEl.innerHTML='<p style="font-size:13px;color:var(--text2)">Sin gastos registrados.</p>';
+    if(annualExpChart){annualExpChart.destroy();annualExpChart=null;}
+  } else {
     const cats={};
     allExp.forEach(i=>{const p=i.cat.split(' – ')[0];cats[p]=(cats[p]||0)+i.amount;});
     const sorted=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+    const labels=sorted.map(([c])=>c);
+    const values=sorted.map(([,v])=>v);
+    const colors=labels.map((_,i)=>CAT_COLORS[i%CAT_COLORS.length]);
+
+    const ec=document.getElementById('annual-exp-chart');
+    if(annualExpChart) annualExpChart.destroy();
+    annualExpChart=new Chart(ec,{type:'doughnut',data:{labels,datasets:[{data:values,backgroundColor:colors,borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:11},color:'#6b6b68',boxWidth:12,padding:8}},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': '+fmt(ctx.raw)+' ('+((ctx.raw/totalExp)*100).toFixed(1)+'%)'}}}}});
+
     expEl.innerHTML='<table class="cat-table"><thead><tr><th>Categoría</th><th>Total</th><th>%</th></tr></thead><tbody>'
       +sorted.map(([cat,amt],i)=>{
         const pct=totalExp>0?((amt/totalExp)*100):0;
@@ -794,14 +818,24 @@ function renderAnnualBreakdowns(y){
       +'</tbody></table>';
   }
 
-  // Income breakdown by source
+  // INCOME breakdown
   const incEl=document.getElementById('annual-inc-breakdown');
-  if(!allInc.length){incEl.innerHTML='<p style="font-size:13px;color:var(--text2)">Sin ingresos registrados.</p>';}
-  else{
+  const incColors=['#1D9E75','#378ADD','#7F77DD','#D4537E','#BA7517'];
+  if(!allInc.length){
+    incEl.innerHTML='<p style="font-size:13px;color:var(--text2)">Sin ingresos registrados.</p>';
+    if(annualIncChart){annualIncChart.destroy();annualIncChart=null;}
+  } else {
     const srcs={};
     allInc.forEach(i=>{srcs[i.cat]=(srcs[i.cat]||0)+i.amount;});
     const sorted=Object.entries(srcs).sort((a,b)=>b[1]-a[1]);
-    const incColors=['#1D9E75','#378ADD','#7F77DD','#D4537E','#BA7517'];
+    const labels=sorted.map(([s])=>s);
+    const values=sorted.map(([,v])=>v);
+    const colors=labels.map((_,i)=>incColors[i%incColors.length]);
+
+    const ic=document.getElementById('annual-inc-chart');
+    if(annualIncChart) annualIncChart.destroy();
+    annualIncChart=new Chart(ic,{type:'doughnut',data:{labels,datasets:[{data:values,backgroundColor:colors,borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:11},color:'#6b6b68',boxWidth:12,padding:8}},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': '+fmt(ctx.raw)+' ('+((ctx.raw/totalInc)*100).toFixed(1)+'%)'}}}}});
+
     incEl.innerHTML='<table class="cat-table"><thead><tr><th>Fuente</th><th>Total</th><th>%</th></tr></thead><tbody>'
       +sorted.map(([src,amt],i)=>{
         const pct=totalInc>0?((amt/totalInc)*100):0;
@@ -850,8 +884,9 @@ function renderMonthly(){
   else if(totalInc>0) ab.innerHTML+='<div class="alert alert-success">&#10003; Balance positivo — ahorro: '+fmt(balance)+' ('+saveRate.toFixed(1)+'%).</div>';
 
   renderMissingPanel(items,expenses,incomes);
-  renderList('list-income',incomes);
-  renderList('list-expense',expenses);
+  renderGroupedList('list-income-grouped', incomes, 'cat');
+  renderGroupedList('list-expense-grouped', expenses, 'cat');
+  renderMonthlyDonuts(expenses, incomes, totalExp, totalInc);
   renderCatBreakdown(expenses,totalExp);
   renderMonthlyChart();
 }
@@ -880,7 +915,99 @@ function renderMissingPanel(items,expenses,incomes){
   </div>`;
 }
 
-// ── RENDER LIST WITH EDIT ─────────────────────────
+// ── GROUPED LIST ──────────────────────────────────
+function renderGroupedList(elId, items, groupBy){
+  const el=document.getElementById(elId);
+  if(!el) return;
+  if(!items.length){el.innerHTML='<div style="font-size:13px;color:var(--text2);padding:10px 0">Sin ítems este mes.</div>';return;}
+
+  // Group by parent category or source
+  const groups={};
+  items.forEach(i=>{
+    const key = groupBy==='cat' ? i.cat.split(' – ')[0] : i.cat;
+    if(!groups[key]) groups[key]={total:0,items:[]};
+    groups[key].total+=i.amount;
+    groups[key].items.push(i);
+  });
+
+  const sorted=Object.entries(groups).sort((a,b)=>b[1].total-a[1].total);
+  el.innerHTML=sorted.map(([grp,data],gi)=>{
+    const gid='grp-'+elId+'-'+gi;
+    const color=CAT_COLORS[gi%CAT_COLORS.length];
+    return `<div style="margin-bottom:6px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+      <div onclick="toggleGroup('${gid}')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;background:var(--bg2);user-select:none">
+        <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
+        <span style="flex:1;font-size:13px;font-weight:500">${grp}</span>
+        <span style="font-size:12px;color:var(--text2)">(${data.items.length})</span>
+        <span style="font-size:13px;font-weight:600">${fmt(data.total)}</span>
+        <span style="font-size:11px;color:var(--text3)" id="arr-${gid}">▼</span>
+      </div>
+      <div id="${gid}" style="display:none">
+        ${data.items.map(item=>`
+          <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0">
+            <div class="item-row-main">
+              <div class="item-info">
+                <span class="item-name">${item.name}</span>
+                <span class="item-sub">${item.cat}</span>
+              </div>
+              ${item.recurring?'<span class="badge badge-rec">Rec</span>':item.fixed?'<span class="badge badge-fix">Fijo</span>':'<span class="badge badge-var">Var</span>'}
+              <span class="item-amount">${fmt(item.amount)}</span>
+              <button class="btn btn-icon btn-sm" onclick="toggleEdit(${item.id})" title="Editar">&#9998;</button>
+              <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteItem(${item.id})" title="Eliminar">&#10005;</button>
+            </div>
+            <div class="edit-panel" id="edit-${item.id}">
+              <div class="edit-row">
+                <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Descripción</label><input id="ename-${item.id}" value="${item.name.replace(/"/g,'&quot;')}"></div>
+                <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Monto</label><input id="eamt-${item.id}" type="number" value="${item.amount}" step="0.01" min="0"></div>
+                <button class="btn btn-success btn-sm" style="margin-top:16px" onclick="saveEdit(${item.id})">&#10003;</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleGroup(gid){
+  const el=document.getElementById(gid);
+  const arr=document.getElementById('arr-'+gid);
+  if(!el) return;
+  const open=el.style.display==='block';
+  el.style.display=open?'none':'block';
+  if(arr) arr.textContent=open?'▼':'▲';
+}
+
+// ── MONTHLY DONUTS ────────────────────────────────
+function renderMonthlyDonuts(expenses, incomes, totalExp, totalInc){
+  // Expense donut
+  const ec=document.getElementById('monthly-exp-donut');
+  if(monthlyExpDonut){monthlyExpDonut.destroy();monthlyExpDonut=null;}
+  if(expenses.length&&ec){
+    const cats={};
+    expenses.forEach(i=>{const p=i.cat.split(' – ')[0];cats[p]=(cats[p]||0)+i.amount;});
+    const sorted=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+    monthlyExpDonut=new Chart(ec,{type:'doughnut',data:{
+      labels:sorted.map(([c])=>c),
+      datasets:[{data:sorted.map(([,v])=>v),backgroundColor:sorted.map((_,i)=>CAT_COLORS[i%CAT_COLORS.length]),borderWidth:2,borderColor:'#fff'}]
+    },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:10},color:'#6b6b68',boxWidth:10,padding:6}},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': '+fmt(ctx.raw)+' ('+((ctx.raw/totalExp)*100).toFixed(1)+'%)'}}}}});
+  }
+
+  // Income donut
+  const ic=document.getElementById('monthly-inc-donut');
+  if(monthlyIncDonut){monthlyIncDonut.destroy();monthlyIncDonut=null;}
+  const incColors=['#1D9E75','#378ADD','#7F77DD','#D4537E','#BA7517'];
+  if(incomes.length&&ic){
+    const srcs={};
+    incomes.forEach(i=>{srcs[i.cat]=(srcs[i.cat]||0)+i.amount;});
+    const sorted=Object.entries(srcs).sort((a,b)=>b[1]-a[1]);
+    monthlyIncDonut=new Chart(ic,{type:'doughnut',data:{
+      labels:sorted.map(([s])=>s),
+      datasets:[{data:sorted.map(([,v])=>v),backgroundColor:sorted.map((_,i)=>incColors[i%incColors.length]),borderWidth:2,borderColor:'#fff'}]
+    },options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:10},color:'#6b6b68',boxWidth:10,padding:6}},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': '+fmt(ctx.raw)+' ('+((ctx.raw/totalInc)*100).toFixed(1)+'%)'}}}}});
+  }
+}
+
+
 function renderList(elId,items){
   const el=document.getElementById(elId);
   if(!items.length){el.innerHTML='<div style="font-size:13px;color:var(--text2);padding:10px 0">Sin ítems este mes.</div>';return;}
