@@ -346,7 +346,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
             </div>
             <div class="check-row"><label class="check-label"><input type="checkbox" id="inc-rec"> Recurrente</label></div>
             <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="addItem('income')">+ Agregar ingreso</button>
-            <div id="list-income-grouped"></div>
+            <div id="list-income-grouped" style="max-height:420px;overflow-y:auto;margin-top:8px"></div>
             <div class="list-total">Total: <span id="total-income">$0.00</span></div>
           </div>
 
@@ -419,7 +419,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
               <label class="check-label"><input type="checkbox" id="exp-fix"> Precio fijo</label>
             </div>
             <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="addItem('expense')">+ Agregar gasto</button>
-            <div id="list-expense-grouped"></div>
+            <div id="list-expense-grouped" style="max-height:420px;overflow-y:auto;margin-top:8px"></div>
             <div class="list-total">Total: <span id="total-expense">$0.00</span></div>
           </div>
         </div>
@@ -942,7 +942,7 @@ function renderGroupedList(elId, items, groupBy){
         <span style="font-size:13px;font-weight:600">${fmt(data.total)}</span>
         <span style="font-size:11px;color:var(--text3)" id="arr-${gid}">▼</span>
       </div>
-      <div id="${gid}" style="display:none">
+      <div id="${gid}" style="display:none;max-height:280px;overflow-y:auto">
         ${data.items.map(item=>`
           <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0">
             <div class="item-row-main">
