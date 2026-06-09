@@ -239,6 +239,19 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="card-title" style="margin-bottom:8px">Meses — haz clic para entrar</div>
     <div class="month-grid" id="month-grid"></div>
 
+    <!-- ANNUAL BREAKDOWNS -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem" id="annual-breakdowns-grid">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Gastos por categoría — año completo</div>
+        <div id="annual-exp-breakdown"><p style="font-size:13px;color:var(--text2)">Sin datos.</p></div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Ingresos por fuente — año completo</div>
+        <div id="annual-inc-breakdown"><p style="font-size:13px;color:var(--text2)">Sin datos.</p></div>
+      </div>
+    </div>
+    <style>@media(max-width:640px){#annual-breakdowns-grid{grid-template-columns:1fr}}</style>
+
     <div class="card">
       <div class="card-title">Patrimonio — snapshot anual <span style="font-size:11px;color:var(--text3);font-weight:400">(no afecta balance de flujo)</span></div>
       <div class="pat-grid">
@@ -736,6 +749,8 @@ function renderAnnual(){
     </div>`;
   }).join('');
 
+  renderAnnualBreakdowns(y);
+
   const pat=getAnnualPat(y);
   document.getElementById('pat-annual-trading').value=pat.trading||'';
   document.getElementById('pat-annual-savings').value=pat.savings||'';
@@ -749,7 +764,56 @@ function renderAnnual(){
   patChart=new Chart(pc,{type:'line',data:{labels:patYears,datasets:[{label:'Patrimonio',data:patVals,borderColor:'#378ADD',backgroundColor:'rgba(55,138,221,0.07)',borderWidth:2,pointRadius:4,tension:0.3,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{font:{size:10},color:'#9b9b98'},grid:{display:false}},y:{ticks:{font:{size:10},color:'#9b9b98',callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(0,0,0,0.05)'}}}}});
 }
 
+// ── ANNUAL BREAKDOWNS ─────────────────────────────
+function renderAnnualBreakdowns(y){
+  // Collect all items for the year
+  let allExp=[], allInc=[];
+  for(let m=0;m<12;m++){
+    const d=getMonth(y,m);
+    if(d&&d.items){
+      allExp=[...allExp,...d.items.filter(i=>i.type==='expense')];
+      allInc=[...allInc,...d.items.filter(i=>i.type==='income')];
+    }
+  }
+  const totalExp=allExp.reduce((s,i)=>s+i.amount,0);
+  const totalInc=allInc.reduce((s,i)=>s+i.amount,0);
+
+  // Expense breakdown by parent category
+  const expEl=document.getElementById('annual-exp-breakdown');
+  if(!allExp.length){expEl.innerHTML='<p style="font-size:13px;color:var(--text2)">Sin gastos registrados.</p>';}
+  else{
+    const cats={};
+    allExp.forEach(i=>{const p=i.cat.split(' – ')[0];cats[p]=(cats[p]||0)+i.amount;});
+    const sorted=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+    expEl.innerHTML='<table class="cat-table"><thead><tr><th>Categoría</th><th>Total</th><th>%</th></tr></thead><tbody>'
+      +sorted.map(([cat,amt],i)=>{
+        const pct=totalExp>0?((amt/totalExp)*100):0;
+        return `<tr><td><span class="pct-bar" style="width:${Math.max(4,Math.round(pct*0.6))}px;background:${CAT_COLORS[i%CAT_COLORS.length]}"></span>${cat}</td><td>${fmt(amt)}</td><td>${pct.toFixed(1)}%</td></tr>`;
+      }).join('')
+      +`<tr style="font-weight:600;border-top:1px solid var(--border)"><td>Total</td><td>${fmt(totalExp)}</td><td>100%</td></tr>`
+      +'</tbody></table>';
+  }
+
+  // Income breakdown by source
+  const incEl=document.getElementById('annual-inc-breakdown');
+  if(!allInc.length){incEl.innerHTML='<p style="font-size:13px;color:var(--text2)">Sin ingresos registrados.</p>';}
+  else{
+    const srcs={};
+    allInc.forEach(i=>{srcs[i.cat]=(srcs[i.cat]||0)+i.amount;});
+    const sorted=Object.entries(srcs).sort((a,b)=>b[1]-a[1]);
+    const incColors=['#1D9E75','#378ADD','#7F77DD','#D4537E','#BA7517'];
+    incEl.innerHTML='<table class="cat-table"><thead><tr><th>Fuente</th><th>Total</th><th>%</th></tr></thead><tbody>'
+      +sorted.map(([src,amt],i)=>{
+        const pct=totalInc>0?((amt/totalInc)*100):0;
+        return `<tr><td><span class="pct-bar" style="width:${Math.max(4,Math.round(pct*0.6))}px;background:${incColors[i%incColors.length]}"></span>${src}</td><td>${fmt(amt)}</td><td>${pct.toFixed(1)}%</td></tr>`;
+      }).join('')
+      +`<tr style="font-weight:600;border-top:1px solid var(--border)"><td>Total</td><td>${fmt(totalInc)}</td><td>100%</td></tr>`
+      +'</tbody></table>';
+  }
+}
+
 // ── RENDER MONTHLY ────────────────────────────────
+
 function renderMonthly(){
   const data=getCurrentData();
   const items=data.items||[];
