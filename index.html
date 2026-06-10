@@ -206,6 +206,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px">
         <span class="topbar-title">Presupuesto</span>
+        <button class="btn btn-sm" onclick="goImport()" style="margin-left:8px">&#8659; Importar estado</button>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -443,6 +444,52 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
 </div>
 
 <input type="file" id="importFile" accept=".json" style="display:none" onchange="handleImport(event)">
+<input type="file" id="csvFile" accept=".csv,.xls,.xlsx" style="display:none" onchange="handleCSV(event)">
+
+<!-- VIEW IMPORT -->
+<div class="view" id="view-import" style="display:none">
+<div class="app">
+  <div class="breadcrumb">
+    <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
+    <span style="color:var(--text3)">/</span>
+    <span style="color:var(--text)">Importar estado de cuenta</span>
+  </div>
+
+  <!-- ACCOUNT CONFIG -->
+  <div class="card">
+    <div class="card-title">1. Configurar cuenta</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+      <div class="form-group">
+        <label>Titular</label>
+        <select id="imp-titular">
+          <option value="Genesis">Genesis</option>
+          <option value="Eddymar">Eddymar</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Banco</label>
+        <input id="imp-banco" placeholder="ej. Bank of America" value="Bank of America">
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <select id="imp-tipo">
+          <option value="debito">Débito</option>
+          <option value="credito">Crédito</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Identificador (últimos 4 dígitos)</label>
+        <input id="imp-id" placeholder="ej. 4833" maxlength="4">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="document.getElementById('csvFile').click()">&#8659; Cargar CSV del estado de cuenta</button>
+    <span id="imp-filename" style="font-size:12px;color:var(--text2);margin-left:10px"></span>
+  </div>
+
+  <!-- PREVIEW BY MONTH -->
+  <div id="imp-preview"></div>
+</div>
+</div>
 
 <script>
 const CLIENT_ID = '444422570475-1ei123iiaui7h02vib17iaavm5qn4eqr.apps.googleusercontent.com';
@@ -576,6 +623,7 @@ function saveAnnualPatrimony(){
 function goAnnual(){
   document.getElementById('view-annual').classList.add('active');
   document.getElementById('view-monthly').classList.remove('active');
+  document.getElementById('view-import').style.display='none';
   renderAnnual();
 }
 
@@ -583,6 +631,7 @@ function goMonthly(year,month){
   activeYear=year;activeMonth=month;
   document.getElementById('view-monthly').classList.add('active');
   document.getElementById('view-annual').classList.remove('active');
+  document.getElementById('view-import').style.display='none';
   document.getElementById('bc-year').textContent=year;
   document.getElementById('bc-month').textContent=MONTHS[month]+' '+year;
   showRecurringPanel();
@@ -1092,6 +1141,298 @@ function switchTab(name,btn){
   ['ingresos','gastos'].forEach(t=>{document.getElementById('tab-'+t).style.display=t===name?'block':'none';});
   document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
+}
+
+// ── IMPORT VIEW ───────────────────────────────────
+function goImport(){
+  document.getElementById('view-annual').classList.remove('active');
+  document.getElementById('view-monthly').classList.remove('active');
+  document.getElementById('view-import').style.display='block';
+  document.getElementById('imp-preview').innerHTML='';
+}
+
+function goAnnualFromImport(){
+  document.getElementById('view-import').style.display='none';
+  document.getElementById('view-annual').classList.add('active');
+  renderAnnual();
+}
+
+// Override goAnnual to also hide import view
+const _origGoAnnual = typeof goAnnual === 'function' ? goAnnual : null;
+
+// ── CSV CATEGORIZATION RULES ──────────────────────
+const CAT_RULES = [
+  // EXCLUSIONS (return null to skip)
+  {match:/mobile banking payment to crd/i, exclude:true},
+  {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true},
+  {match:/zelle payment (to|from) genesis gonzalez/i, exclude:true},
+  {match:/beginning balance/i, exclude:true},
+  // INGRESOS
+  {match:/robinhood/i, cat:'Trading – retiro', type:'income'},
+  {match:/webull/i, cat:'Trading – retiro', type:'income'},
+  {match:/instacart|shipt|stripe.*instacart/i, cat:'Freelance 1099', type:'income'},
+  {match:/direct dep|directo|payroll|nomina|nómina/i, cat:'Salario W-2', type:'income'},
+  // BILLS
+  {match:/verizon|at&t|t-mobile|sprint/i, cat:'Bills – Teléfono', type:'expense'},
+  {match:/fbs fort bend|mortgage|home loan/i, cat:'Bills – Mortgage', type:'expense'},
+  {match:/insurance|seguro/i, cat:'Bills – Seguro médico', type:'expense'},
+  {match:/geico|state farm|allstate|progressive/i, cat:'Bills – Seguro auto', type:'expense'},
+  {match:/water|agua|utility/i, cat:'Bills – Agua', type:'expense'},
+  {match:/gas company|atmos|centerpoint/i, cat:'Bills – Gas', type:'expense'},
+  {match:/electric|txu|reliant|nrg/i, cat:'Bills – Electricidad', type:'expense'},
+  {match:/xfinity|comcast|spectrum|att internet/i, cat:'Bills – Internet', type:'expense'},
+  // SUSCRIPCIONES
+  {match:/netflix/i, cat:'Suscripciones – Streaming', type:'expense'},
+  {match:/disney|hulu|paramount|peacock|max\b/i, cat:'Suscripciones – Streaming', type:'expense'},
+  {match:/spotify|apple music|youtube music/i, cat:'Suscripciones – Música', type:'expense'},
+  {match:/amazon prime/i, cat:'Suscripciones – Otro', type:'expense'},
+  {match:/apple\.com\/bill|apple card/i, cat:'Suscripciones – Otro', type:'expense'},
+  {match:/amp global|tradezella|quant.*data|tradingview|bookmap|atas/i, cat:'Suscripciones – Trading', type:'expense'},
+  {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
+  // TRANSPORTE
+  {match:/shell|exxon|chevron|bp\b|valero|murphy|circle k|gas station/i, cat:'Transporte – Gasolina', type:'expense'},
+  {match:/gm financial|ford motor|toyota.*finance|honda.*finance/i, cat:'Transporte – Mantenimiento', type:'expense'},
+  {match:/uber|lyft/i, cat:'Transporte – Uber/Lyft', type:'expense'},
+  {match:/autozone|advance auto|o\'reilly|napa auto/i, cat:'Transporte – Mantenimiento', type:'expense'},
+  // COMIDA
+  {match:/heb|walmart grocery|kroger|aldi|whole foods|trader joe|costco|sam\'s/i, cat:'Comida – Supermercado', type:'expense'},
+  {match:/walmart/i, cat:'Comida – Supermercado', type:'expense'},
+  {match:/doordash|ubereats|grubhub|postmates|favor/i, cat:'Comida – Delivery', type:'expense'},
+  {match:/mcdonald|chick-fil|whataburger|wendy|taco bell|subway|chipotle|domino|pizza|marcos pizza|culver/i, cat:'Comida – Restaurantes', type:'expense'},
+  // COMPRAS
+  {match:/amazon\b/i, cat:'Compras – Otro', type:'expense'},
+  {match:/target\b/i, cat:'Compras – Hogar', type:'expense'},
+  {match:/ross|burlington|tj maxx|marshalls|old navy|gap|h&m/i, cat:'Compras – Ropa', type:'expense'},
+  {match:/best buy|apple store|micro center/i, cat:'Compras – Electrónica', type:'expense'},
+  // SALUD
+  {match:/cvs|walgreens|rite aid|pharmacy/i, cat:'Salud – Medicamentos', type:'expense'},
+  {match:/hospital|clinic|medical|dental|vision|doctor|dr\./i, cat:'Salud – Copay/Médico', type:'expense'},
+  // EDUCACION
+  {match:/udemy|coursera|skillshare|teachable/i, cat:'Educación – Cursos', type:'expense'},
+  // ENTRETENIMIENTO
+  {match:/movie|cinema|amc|regal/i, cat:'Entretenimiento – Salidas', type:'expense'},
+];
+
+function categorizeTx(desc, amount){
+  const d = desc.toLowerCase();
+  for(const rule of CAT_RULES){
+    if(rule.match.test(d)){
+      if(rule.exclude) return {exclude:true};
+      return {cat:rule.cat, type:rule.type};
+    }
+  }
+  // Fallback by sign
+  const amt = parseFloat(String(amount).replace(/,/g,''));
+  if(amt > 0) return {cat:'Otro ingreso', type:'income'};
+  return {cat:'Sin especificar', type:'expense'};
+}
+
+function parseCSV(text){
+  const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
+  // Find header row with Date,Description,Amount
+  let headerIdx = -1;
+  for(let i=0;i<lines.length;i++){
+    if(/date.*description.*amount/i.test(lines[i])){headerIdx=i;break;}
+  }
+  if(headerIdx<0) return null;
+
+  const rows = [];
+  for(let i=headerIdx+1;i<lines.length;i++){
+    const cols = parseCSVLine(lines[i]);
+    if(cols.length<3) continue;
+    const date = cols[0].trim();
+    const desc = cols[1].trim();
+    const amtRaw = cols[2].replace(/,/g,'').replace(/"/g,'').trim();
+    const amount = parseFloat(amtRaw);
+    if(!date||!desc||isNaN(amount)||amount===0) continue;
+    if(/beginning balance/i.test(desc)) continue;
+    rows.push({date, desc, amount});
+  }
+  return rows;
+}
+
+function parseCSVLine(line){
+  const result=[];let cur='';let inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){inQ=!inQ;}
+    else if(c===','&&!inQ){result.push(cur);cur='';}
+    else{cur+=c;}
+  }
+  result.push(cur);
+  return result;
+}
+
+function groupByMonth(rows){
+  const months={};
+  rows.forEach(row=>{
+    const parts=row.date.split('/');
+    if(parts.length<3) return;
+    const m=parseInt(parts[0])-1;
+    const y=parseInt(parts[2]);
+    const key=y+'_'+m;
+    if(!months[key]) months[key]={year:y,month:m,rows:[]};
+    months[key].rows.push(row);
+  });
+  return months;
+}
+
+let pendingTxByMonth = {};
+let currentImportMeta = {};
+
+function handleCSV(e){
+  const file=e.target.files[0];
+  if(!file) return;
+  document.getElementById('imp-filename').textContent=file.name;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const text=ev.target.result;
+    const rows=parseCSV(text);
+    if(!rows||!rows.length){
+      document.getElementById('imp-preview').innerHTML='<div class="alert alert-danger">No se pudo leer el archivo. Verifica que sea el CSV de BofA.</div>';
+      return;
+    }
+    currentImportMeta={
+      titular: document.getElementById('imp-titular').value,
+      banco: document.getElementById('imp-banco').value,
+      tipo: document.getElementById('imp-tipo').value,
+      id: document.getElementById('imp-id').value
+    };
+    const grouped=groupByMonth(rows);
+    pendingTxByMonth=grouped;
+    renderImportPreview(grouped);
+  };
+  reader.readAsText(file);
+  e.target.value='';
+}
+
+function renderImportPreview(grouped){
+  const wrap=document.getElementById('imp-preview');
+  const keys=Object.keys(grouped).sort();
+  if(!keys.length){wrap.innerHTML='<div class="alert alert-warning">Sin transacciones encontradas.</div>';return;}
+
+  wrap.innerHTML=keys.map(key=>{
+    const {year,month,rows}=grouped[key];
+    const txs=rows.map(row=>{
+      const cat=categorizeTx(row.desc,row.amount);
+      return {...row,...cat};
+    }).filter(r=>!r.exclude);
+
+    const totalInc=txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+    const totalExp=txs.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+
+    return `<div class="card" id="imp-month-${key}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div>
+          <span style="font-size:15px;font-weight:600">${MONTHS[month]} ${year}</span>
+          <span style="font-size:12px;color:var(--text2);margin-left:8px">${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.tipo} ${currentImportMeta.id}</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:12px;color:var(--green)">+${fmt(totalInc)}</span>
+          <span style="font-size:12px;color:var(--red)">-${fmt(totalExp)}</span>
+          <span style="font-size:11px;color:var(--text3)">${txs.length} transacciones</span>
+          <button class="btn btn-success btn-sm" onclick="confirmImportMonth('${key}',${year},${month})">&#10003; Importar este mes</button>
+        </div>
+      </div>
+      <div style="max-height:400px;overflow-y:auto">
+        <table class="cat-table">
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th style="text-align:right">Monto</th></tr></thead>
+          <tbody id="tbody-${key}">
+            ${txs.map((tx,i)=>`
+              <tr>
+                <td style="white-space:nowrap;color:var(--text2)">${tx.date}</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tx.desc}">${tx.desc}</td>
+                <td>
+                  <select onchange="updateTxCat('${key}',${i},this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:${tx.cat==='Sin especificar'?'var(--amber-bg)':'var(--bg)'};color:${tx.cat==='Sin especificar'?'var(--amber-text)':'var(--text)'}">
+                    ${getCatOptions(tx.cat)}
+                  </select>
+                </td>
+                <td style="text-align:right;font-weight:500;color:${tx.amount>0?'var(--green)':'var(--red)'}">${fmt(Math.abs(tx.amount))}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function getCatOptions(selected){
+  const allCats=[
+    {g:'Ingresos',opts:['Salario W-2','Freelance 1099','Trading – retiro','Otro ingreso']},
+    {g:'Bills',opts:['Bills – Mortgage','Bills – Renta','Bills – Agua','Bills – Gas','Bills – Electricidad','Bills – Teléfono','Bills – Internet','Bills – Seguro médico','Bills – Seguro auto']},
+    {g:'Suscripciones',opts:['Suscripciones – Streaming','Suscripciones – Música','Suscripciones – Software','Suscripciones – Gym','Suscripciones – Trading','Suscripciones – Otro']},
+    {g:'Transporte',opts:['Transporte – Gasolina','Transporte – Mantenimiento','Transporte – Uber/Lyft','Transporte – Otro']},
+    {g:'Comida',opts:['Comida – Supermercado','Comida – Restaurantes','Comida – Delivery']},
+    {g:'Compras',opts:['Compras – Ropa','Compras – Hogar','Compras – Electrónica','Compras – Otro']},
+    {g:'Salud',opts:['Salud – Copay/Médico','Salud – Dentista','Salud – Medicamentos','Salud – Otro']},
+    {g:'Educación',opts:['Educación – Cursos','Educación – Materiales','Educación – Otro']},
+    {g:'Entretenimiento',opts:['Entretenimiento – Salidas','Entretenimiento – Viajes','Entretenimiento – Otro']},
+    {g:'Ahorros',opts:['Ahorros – Transferencia','Ahorros – Inversión']},
+    {g:'Otro',opts:['Sin especificar','Excluir']},
+  ];
+  return allCats.map(g=>`<optgroup label="${g.g}">${g.opts.map(o=>`<option value="${o}"${o===selected?' selected':''}>${o}</option>`).join('')}</optgroup>`).join('');
+}
+
+function updateTxCat(key, idx, newCat, selectEl){
+  const rows=pendingTxByMonth[key].rows;
+  // Find the tx by index in filtered (non-excluded) list
+  const txs=rows.map(r=>({...r,...categorizeTx(r.desc,r.amount)})).filter(r=>!r.exclude);
+  if(txs[idx]){
+    // Store override
+    if(!pendingTxByMonth[key].overrides) pendingTxByMonth[key].overrides={};
+    pendingTxByMonth[key].overrides[idx]={cat:newCat, type:['Salario W-2','Freelance 1099','Trading – retiro','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense'};
+    // Update select style
+    selectEl.style.background=newCat==='Sin especificar'?'var(--amber-bg)':newCat==='Excluir'?'var(--red-bg)':'var(--bg)';
+    selectEl.style.color=newCat==='Sin especificar'?'var(--amber-text)':newCat==='Excluir'?'var(--red-text)':'var(--text)';
+    // Save rule for future
+    saveCategorizationRule(pendingTxByMonth[key].rows.filter(r=>!categorizeTx(r.desc,r.amount).exclude)[idx]?.desc, newCat);
+  }
+}
+
+function saveCategorizationRule(desc, cat){
+  if(!desc||!cat||cat==='Sin especificar'||cat==='Excluir') return;
+  if(!appData.catRules) appData.catRules=[];
+  // Extract a keyword from description (first meaningful word)
+  const keyword=desc.split(/\s+/).filter(w=>w.length>3)[0]||desc.substring(0,8);
+  const exists=appData.catRules.find(r=>r.keyword===keyword);
+  if(!exists) appData.catRules.push({keyword,cat});
+}
+
+function confirmImportMonth(key, year, month){
+  const {rows, overrides={}}=pendingTxByMonth[key];
+  const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc,r.amount)})).filter(r=>!r.exclude);
+
+  const items=[];
+  txs.forEach((tx,i)=>{
+    const override=overrides[i];
+    const cat=override?override.cat:tx.cat;
+    const type=override?override.type:tx.type;
+    if(type==='exclude'||cat==='Excluir') return;
+    items.push({
+      id:Date.now()+Math.random(),
+      type,
+      name:tx.desc.substring(0,40),
+      cat,
+      amount:Math.abs(tx.amount),
+      recurring:false,
+      fixed:false,
+      imported:true,
+      account:`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`,
+      date:tx.date
+    });
+  });
+
+  // Merge into existing month data
+  const existing=getMonth(year,month)||emptyMonth();
+  existing.items=[...existing.items,...items];
+  setMonth(year,month,existing);
+  saveToDrive();
+
+  // Mark as imported in UI
+  const card=document.getElementById('imp-month-'+key);
+  if(card){
+    card.innerHTML=`<div class="alert alert-success">&#10003; ${items.length} transacciones importadas a ${MONTHS[month]} ${year}.</div>`;
+  }
 }
 
 // ── EXPORT / IMPORT ───────────────────────────────
