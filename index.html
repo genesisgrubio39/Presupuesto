@@ -1201,6 +1201,7 @@ const CAT_RULES = [
   {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
   // TRANSPORTE
   {match:/shell|exxon|chevron|bp\b|valero|murphy|circle k|gas station/i, cat:'Transporte – Gasolina', type:'expense'},
+  {match:/pennymac|penny mac/i, cat:'Bills – Mortgage', type:'expense'},
   {match:/tamarron|hoa|homeown.*assn|homeowners.*assn|association.*dues/i, cat:'Bills – HOA', type:'expense'},
   {match:/toyota.*lease|toyota.*ach|gm financial|ford motor|honda.*finance|auto loan|car loan|carmax auto/i, cat:'Transporte – Auto Loan', type:'expense'},
   {match:/uber|lyft/i, cat:'Transporte – Uber/Lyft', type:'expense'},
@@ -1343,7 +1344,7 @@ function renderImportPreview(grouped){
         <div style="display:flex;gap:8px;align-items:center">
           <span style="font-size:12px;color:var(--green)">+${fmt(totalInc)}</span>
           <span style="font-size:12px;color:var(--red)">-${fmt(totalExp)}</span>
-          <span style="font-size:11px;color:var(--text3)">${active.length} activas · ${softExcluded.length} transferencias internas</span>
+          <span style="font-size:11px;color:var(--text3)">${active.length} activas · ${softExcluded.length} excluidas</span>
           <button class="btn btn-success btn-sm" onclick="confirmImportMonth('${key}',${year},${month})">&#10003; Importar este mes</button>
         </div>
       </div>
@@ -1364,7 +1365,7 @@ function renderImportPreview(grouped){
               </tr>`).join('')}
             ${softExcluded.length?`
               <tr><td colspan="4" style="padding:8px 6px;font-size:11px;color:var(--text3);background:var(--bg2);border-top:2px solid var(--border)">
-                TRANSFERENCIAS INTERNAS — excluidas del balance. Cambia categoría para incluir.
+                EXCLUIDAS DEL BALANCE — pagos a tarjeta, transferencias internas, balances iniciales. Cambia categoría para incluir.
               </td></tr>
               ${softExcluded.map((tx,i)=>`
               <tr style="opacity:0.55;background:var(--bg2)">
