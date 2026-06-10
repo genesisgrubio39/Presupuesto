@@ -1171,9 +1171,12 @@ const CAT_RULES = [
   // EXCLUSIONS — visibles pero excluidas del balance
   {match:/mobile banking payment to crd/i, exclude:true, excludeLabel:'Pago a tarjeta de crédito'},
   {match:/beginning balance/i, exclude:true, excludeLabel:'Balance inicial'},
-  // ZELLE INTERNOS
+  // ZELLE INTERNOS — todas las variaciones de nombres
   {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
   {match:/zelle payment (to|from) genesis gonzalez/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
+  {match:/zelle payment (to|from) genesis gonzalezrubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
+  {match:/zelle payment to genesis gonzalez-rubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
+  {match:/zelle payment from genesis gonzalez-rubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
   // ZELLE EXTERNOS
   {match:/zelle payment from/i, cat:'Zelle – Ingreso', type:'income'},
   {match:/zelle payment to/i, cat:'Zelle – Transferencia', type:'expense'},
@@ -1201,7 +1204,10 @@ const CAT_RULES = [
   {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
   // TRANSPORTE
   {match:/shell|exxon|chevron|bp\b|valero|murphy|circle k|gas station/i, cat:'Transporte – Gasolina', type:'expense'},
-  {match:/nellis auction/i, cat:'Compras – Otro', type:'expense'},
+  {match:/igloo products.*payroll|payroll.*igloo/i, cat:'Salario W-2', type:'income'},
+  {match:/usr electricbill|usr.*electric/i, cat:'Bills – Electricidad', type:'expense'},
+  {match:/one finance/i, cat:'Otro ingreso', type:'income'},
+  {match:/bkofamerica atm.*withdrwl|atm.*withdrwl/i, cat:'Sin especificar', type:'expense'},
   {match:/squarespace|sqsp/i, cat:'Suscripciones – Software', type:'expense'},
   {match:/perplexity/i, cat:'Suscripciones – Software', type:'expense'},
   {match:/ezee fiber/i, cat:'Bills – Internet', type:'expense'},
