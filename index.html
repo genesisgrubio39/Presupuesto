@@ -341,6 +341,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
                 <option value="Salario W-2">Salario W-2</option>
                 <option value="Freelance 1099">Freelance 1099</option>
                 <option value="Trading – retiro">Trading (retiro)</option>
+                <option value="Zelle – Ingreso">Zelle – Ingreso</option>
                 <option value="Otro ingreso">Otro ingreso</option>
               </select></div>
               <div class="form-group"><label>Monto</label><input id="inc-amount" type="number" placeholder="0.00" min="0" step="0.01"></div>
@@ -413,6 +414,9 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
                 <optgroup label="Ahorros activos">
                   <option value="Ahorros – Transferencia">Transferencia a savings</option>
                   <option value="Ahorros – Inversión">Inversión activa</option>
+                </optgroup>
+                <optgroup label="Transferencias">
+                  <option value="Zelle – Transferencia">Zelle – Transferencia</option>
                 </optgroup>
               </select></div>
               <div class="form-group"><label>Monto</label><input id="exp-amount" type="number" placeholder="0.00" min="0" step="0.01"></div>
@@ -1166,9 +1170,13 @@ const _origGoAnnual = typeof goAnnual === 'function' ? goAnnual : null;
 const CAT_RULES = [
   // EXCLUSIONS (return null to skip)
   {match:/mobile banking payment to crd/i, exclude:true},
-  {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true},
-  {match:/zelle payment (to|from) genesis gonzalez/i, exclude:true},
   {match:/beginning balance/i, exclude:true},
+  // ZELLE INTERNOS (excluir pero mostrar)
+  {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
+  {match:/zelle payment (to|from) genesis gonzalez/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
+  // ZELLE EXTERNOS
+  {match:/zelle payment from/i, cat:'Zelle – Ingreso', type:'income'},
+  {match:/zelle payment to/i, cat:'Zelle – Transferencia', type:'expense'},
   // INGRESOS
   {match:/robinhood/i, cat:'Trading – retiro', type:'income'},
   {match:/webull/i, cat:'Trading – retiro', type:'income'},
@@ -1319,10 +1327,15 @@ function renderImportPreview(grouped){
     const txs=rows.map(row=>{
       const cat=categorizeTx(row.desc,row.amount);
       return {...row,...cat};
-    }).filter(r=>!r.exclude);
+    });
+    // Hard excluded = mobile banking, beginning balance (never shown as recoverable)
+    const hardExcluded=txs.filter(r=>r.exclude&&!r.excludeLabel);
+    // Soft excluded = internal Zelle (shown but excluded)
+    const softExcluded=txs.filter(r=>r.exclude&&r.excludeLabel);
+    const active=txs.filter(r=>!r.exclude);
 
-    const totalInc=txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-    const totalExp=txs.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+    const totalInc=active.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+    const totalExp=active.filter(t=>t.type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
 
     return `<div class="card" id="imp-month-${key}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -1333,15 +1346,15 @@ function renderImportPreview(grouped){
         <div style="display:flex;gap:8px;align-items:center">
           <span style="font-size:12px;color:var(--green)">+${fmt(totalInc)}</span>
           <span style="font-size:12px;color:var(--red)">-${fmt(totalExp)}</span>
-          <span style="font-size:11px;color:var(--text3)">${txs.length} transacciones</span>
+          <span style="font-size:11px;color:var(--text3)">${active.length} activas · ${softExcluded.length} transferencias internas</span>
           <button class="btn btn-success btn-sm" onclick="confirmImportMonth('${key}',${year},${month})">&#10003; Importar este mes</button>
         </div>
       </div>
-      <div style="max-height:400px;overflow-y:auto">
+      <div style="max-height:500px;overflow-y:auto">
         <table class="cat-table">
           <thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th style="text-align:right">Monto</th></tr></thead>
           <tbody id="tbody-${key}">
-            ${txs.map((tx,i)=>`
+            ${active.map((tx,i)=>`
               <tr>
                 <td style="white-space:nowrap;color:var(--text2)">${tx.date}</td>
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tx.desc}">${tx.desc}</td>
@@ -1352,6 +1365,31 @@ function renderImportPreview(grouped){
                 </td>
                 <td style="text-align:right;font-weight:500;color:${tx.amount>0?'var(--green)':'var(--red)'}">${fmt(Math.abs(tx.amount))}</td>
               </tr>`).join('')}
+            ${softExcluded.length?`
+              <tr><td colspan="4" style="padding:8px 6px;font-size:11px;color:var(--text3);background:var(--bg2);border-top:2px solid var(--border)">
+                TRANSFERENCIAS INTERNAS — excluidas del balance. Cambia categoría para incluir.
+              </td></tr>
+              ${softExcluded.map((tx,i)=>`
+              <tr style="opacity:0.55;background:var(--bg2)">
+                <td style="white-space:nowrap;color:var(--text2)">${tx.date}</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tx.desc}">
+                  <s>${tx.desc}</s>
+                  <span style="font-size:10px;color:var(--text3);display:block">${tx.excludeLabel||''}</span>
+                </td>
+                <td>
+                  <select onchange="updateExcludedCat('${key}','${tx.date}','${tx.desc.replace(/'/g,"\\'")}',this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);color:var(--text3)">
+                    <option value="Excluir" selected>Transferencia interna</option>
+                    ${getCatOptions('Excluir')}
+                  </select>
+                </td>
+                <td style="text-align:right;color:var(--text3)">${fmt(Math.abs(tx.amount))}</td>
+              </tr>`).join('')}
+            `:''}
+            ${hardExcluded.length?`
+              <tr><td colspan="4" style="padding:4px 6px;font-size:10px;color:var(--text3);background:var(--bg3)">
+                ${hardExcluded.length} transacciones ocultadas (pagos a tarjeta, balances iniciales)
+              </td></tr>
+            `:''}
           </tbody>
         </table>
       </div>
@@ -1361,7 +1399,7 @@ function renderImportPreview(grouped){
 
 function getCatOptions(selected){
   const allCats=[
-    {g:'Ingresos',opts:['Salario W-2','Freelance 1099','Trading – retiro','Otro ingreso']},
+    {g:'Ingresos',opts:['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso']},
     {g:'Bills',opts:['Bills – Mortgage','Bills – HOA','Bills – Renta','Bills – Agua','Bills – Gas','Bills – Electricidad','Bills – Teléfono','Bills – Internet','Bills – Seguro médico','Bills – Seguro auto']},
     {g:'Suscripciones',opts:['Suscripciones – Streaming','Suscripciones – Música','Suscripciones – Software','Suscripciones – Gym','Suscripciones – Trading','Suscripciones – Otro']},
     {g:'Transporte',opts:['Transporte – Gasolina','Transporte – Auto Loan','Transporte – Mantenimiento','Transporte – Uber/Lyft','Transporte – Otro']},
@@ -1371,6 +1409,7 @@ function getCatOptions(selected){
     {g:'Educación',opts:['Educación – Cursos','Educación – Materiales','Educación – Otro']},
     {g:'Entretenimiento',opts:['Entretenimiento – Salidas','Entretenimiento – Viajes','Entretenimiento – Otro']},
     {g:'Ahorros',opts:['Ahorros – Transferencia','Ahorros – Inversión']},
+    {g:'Transferencias',opts:['Zelle – Transferencia']},
     {g:'Otro',opts:['Sin especificar','Excluir']},
   ];
   return allCats.map(g=>`<optgroup label="${g.g}">${g.opts.map(o=>`<option value="${o}"${o===selected?' selected':''}>${o}</option>`).join('')}</optgroup>`).join('');
@@ -1383,7 +1422,7 @@ function updateTxCat(key, idx, newCat, selectEl){
   if(txs[idx]){
     // Store override
     if(!pendingTxByMonth[key].overrides) pendingTxByMonth[key].overrides={};
-    pendingTxByMonth[key].overrides[idx]={cat:newCat, type:['Salario W-2','Freelance 1099','Trading – retiro','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense'};
+    pendingTxByMonth[key].overrides[idx]={cat:newCat, type:['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense'};
     // Update select style
     selectEl.style.background=newCat==='Sin especificar'?'var(--amber-bg)':newCat==='Excluir'?'var(--red-bg)':'var(--bg)';
     selectEl.style.color=newCat==='Sin especificar'?'var(--amber-text)':newCat==='Excluir'?'var(--red-text)':'var(--text)';
@@ -1401,41 +1440,57 @@ function saveCategorizationRule(desc, cat){
   if(!exists) appData.catRules.push({keyword,cat});
 }
 
+function updateExcludedCat(key, date, desc, newCat, selectEl){
+  if(newCat==='Excluir') return;
+  if(!pendingTxByMonth[key].recovered) pendingTxByMonth[key].recovered=[];
+  const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
+  // Find the original row
+  const row=pendingTxByMonth[key].rows.find(r=>r.date===date&&r.desc.startsWith(desc.substring(0,20)));
+  if(row) pendingTxByMonth[key].recovered.push({...row,cat:newCat,type});
+  selectEl.style.background='var(--green-bg)';selectEl.style.color='var(--green-text)';
+  const td=selectEl.closest('tr');if(td) td.style.opacity='1';
+}
+
 function confirmImportMonth(key, year, month){
-  const {rows, overrides={}}=pendingTxByMonth[key];
-  const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc,r.amount)})).filter(r=>!r.exclude);
+  const {rows, overrides={}, recovered=[]}=pendingTxByMonth[key];
+  const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc,r.amount)}));
+  const active=txs.filter(r=>!r.exclude);
 
   const items=[];
-  txs.forEach((tx,i)=>{
+  active.forEach((tx,i)=>{
     const override=overrides[i];
     const cat=override?override.cat:tx.cat;
     const type=override?override.type:tx.type;
     if(type==='exclude'||cat==='Excluir') return;
     items.push({
       id:Date.now()+Math.random(),
-      type,
-      name:tx.desc.substring(0,40),
-      cat,
+      type,name:tx.desc.substring(0,40),cat,
       amount:Math.abs(tx.amount),
-      recurring:false,
-      fixed:false,
-      imported:true,
+      recurring:false,fixed:false,imported:true,
       account:`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`,
       date:tx.date
     });
   });
 
-  // Merge into existing month data
+  // Add recovered excluded items
+  recovered.forEach(tx=>{
+    items.push({
+      id:Date.now()+Math.random(),
+      type:tx.type,name:tx.desc.substring(0,40),cat:tx.cat,
+      amount:Math.abs(tx.amount),
+      recurring:false,fixed:false,imported:true,
+      account:`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`,
+      date:tx.date
+    });
+  });
+
   const existing=getMonth(year,month)||emptyMonth();
   existing.items=[...existing.items,...items];
   setMonth(year,month,existing);
   saveToDrive();
 
-  // Mark as imported in UI
   const card=document.getElementById('imp-month-'+key);
-  if(card){
-    card.innerHTML=`<div class="alert alert-success">&#10003; ${items.length} transacciones importadas a ${MONTHS[month]} ${year}.</div>`;
-  }
+  if(card) card.innerHTML=`<div class="alert alert-success">&#10003; ${items.length} transacciones importadas a ${MONTHS[month]} ${year}.</div>`;
 }
 
 // ── EXPORT / IMPORT ───────────────────────────────
