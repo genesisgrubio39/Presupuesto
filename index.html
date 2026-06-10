@@ -1233,6 +1233,21 @@ const CAT_RULES = [
 function categorizeTx(desc, amount, forceExclude, excludeLabel){
   if(forceExclude) return {exclude:true, excludeLabel: excludeLabel||'Excluido'};
   const d = desc.toLowerCase();
+
+  // Check learned rules first (user corrections take priority)
+  if(appData.catRules && appData.catRules.length){
+    const keyword20 = desc.substring(0,20).trim();
+    const learned = appData.catRules.find(r=>
+      keyword20.toLowerCase().startsWith(r.keyword.toLowerCase()) ||
+      r.keyword.toLowerCase().startsWith(keyword20.toLowerCase().substring(0,10))
+    );
+    if(learned){
+      const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(learned.cat)?'income':'expense';
+      return {cat:learned.cat, type};
+    }
+  }
+
+  // Then hardcoded rules
   for(const rule of CAT_RULES){
     if(rule.match.test(d)){
       if(rule.exclude) return {exclude:true, excludeLabel:rule.excludeLabel||'Excluido'};
@@ -1445,27 +1460,32 @@ function getCatOptions(selected){
 
 function updateTxCat(key, idx, newCat, selectEl){
   const rows=pendingTxByMonth[key].rows;
-  // Find the tx by index in filtered (non-excluded) list
-  const txs=rows.map(r=>({...r,...categorizeTx(r.desc,r.amount)})).filter(r=>!r.exclude);
+  const txs=rows.map(r=>({...r,...categorizeTx(r.desc,r.amount,r.forceExclude,r.excludeLabel)})).filter(r=>!r.exclude);
   if(txs[idx]){
-    // Store override
     if(!pendingTxByMonth[key].overrides) pendingTxByMonth[key].overrides={};
-    pendingTxByMonth[key].overrides[idx]={cat:newCat, type:['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense'};
+    const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense';
+    pendingTxByMonth[key].overrides[idx]={cat:newCat, type};
     // Update select style
-    selectEl.style.background=newCat==='Sin especificar'?'var(--amber-bg)':newCat==='Excluir'?'var(--red-bg)':'var(--bg)';
-    selectEl.style.color=newCat==='Sin especificar'?'var(--amber-text)':newCat==='Excluir'?'var(--red-text)':'var(--text)';
-    // Save rule for future
-    saveCategorizationRule(pendingTxByMonth[key].rows.filter(r=>!categorizeTx(r.desc,r.amount).exclude)[idx]?.desc, newCat);
+    selectEl.style.background=newCat==='Sin especificar'?'var(--amber-bg)':newCat==='Excluir'?'var(--red-bg)':'var(--green-bg)';
+    selectEl.style.color=newCat==='Sin especificar'?'var(--amber-text)':newCat==='Excluir'?'var(--red-text)':'var(--green-text)';
+    // Save rule immediately to Drive
+    saveCategorizationRule(txs[idx].desc, newCat);
   }
 }
 
 function saveCategorizationRule(desc, cat){
   if(!desc||!cat||cat==='Sin especificar'||cat==='Excluir') return;
   if(!appData.catRules) appData.catRules=[];
-  // Extract a keyword from description (first meaningful word)
-  const keyword=desc.split(/\s+/).filter(w=>w.length>3)[0]||desc.substring(0,8);
-  const exists=appData.catRules.find(r=>r.keyword===keyword);
-  if(!exists) appData.catRules.push({keyword,cat});
+  // Store first 20 chars of description as key — enough to match recurring transactions
+  const keyword=desc.substring(0,20).trim();
+  const existing=appData.catRules.find(r=>r.keyword===keyword);
+  if(existing){
+    existing.cat=cat; // update if already exists
+  } else {
+    appData.catRules.push({keyword, cat});
+  }
+  // Save to Drive immediately
+  saveToDrive();
 }
 
 function updateExcludedCat(key, date, desc, newCat, selectEl){
