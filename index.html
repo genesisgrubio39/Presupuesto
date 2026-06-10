@@ -1201,7 +1201,12 @@ const CAT_RULES = [
   {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
   // TRANSPORTE
   {match:/shell|exxon|chevron|bp\b|valero|murphy|circle k|gas station/i, cat:'Transporte – Gasolina', type:'expense'},
-  {match:/pennymac|penny mac/i, cat:'Bills – Mortgage', type:'expense'},
+  {match:/nellis auction/i, cat:'Compras – Otro', type:'expense'},
+  {match:/squarespace|sqsp/i, cat:'Suscripciones – Software', type:'expense'},
+  {match:/perplexity/i, cat:'Suscripciones – Software', type:'expense'},
+  {match:/ezee fiber/i, cat:'Bills – Internet', type:'expense'},
+  {match:/eqt.*community health|community health/i, cat:'Salud – Copay/Médico', type:'expense'},
+  {match:/cash rewards statement credit/i, cat:'Otro ingreso', type:'income'},
   {match:/tamarron|hoa|homeown.*assn|homeowners.*assn|association.*dues/i, cat:'Bills – HOA', type:'expense'},
   {match:/toyota.*lease|toyota.*ach|gm financial|ford motor|honda.*finance|auto loan|car loan|carmax auto/i, cat:'Transporte – Auto Loan', type:'expense'},
   {match:/uber|lyft/i, cat:'Transporte – Uber/Lyft', type:'expense'},
@@ -1225,11 +1230,12 @@ const CAT_RULES = [
   {match:/movie|cinema|amc|regal/i, cat:'Entretenimiento – Salidas', type:'expense'},
 ];
 
-function categorizeTx(desc, amount){
+function categorizeTx(desc, amount, forceExclude, excludeLabel){
+  if(forceExclude) return {exclude:true, excludeLabel: excludeLabel||'Excluido'};
   const d = desc.toLowerCase();
   for(const rule of CAT_RULES){
     if(rule.match.test(d)){
-      if(rule.exclude) return {exclude:true};
+      if(rule.exclude) return {exclude:true, excludeLabel:rule.excludeLabel||'Excluido'};
       return {cat:rule.cat, type:rule.type};
     }
   }
@@ -1241,10 +1247,18 @@ function categorizeTx(desc, amount){
 
 function parseCSV(text){
   const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
-  // Find header row with Date,Description,Amount
+  
+  // Detect format by header
   let headerIdx = -1;
+  let format = 'debit'; // default BofA debit: Date, Description, Amount, Running Bal
+  
   for(let i=0;i<lines.length;i++){
-    if(/date.*description.*amount/i.test(lines[i])){headerIdx=i;break;}
+    if(/posted date.*reference.*payee.*amount/i.test(lines[i])){
+      headerIdx=i; format='credit'; break;
+    }
+    if(/date.*description.*amount/i.test(lines[i])){
+      headerIdx=i; format='debit'; break;
+    }
   }
   if(headerIdx<0) return null;
 
@@ -1252,12 +1266,33 @@ function parseCSV(text){
   for(let i=headerIdx+1;i<lines.length;i++){
     const cols = parseCSVLine(lines[i]);
     if(cols.length<3) continue;
-    const date = cols[0].trim();
-    const desc = cols[1].trim();
-    const amtRaw = cols[2].replace(/,/g,'').replace(/"/g,'').trim();
-    const amount = parseFloat(amtRaw);
+    
+    let date, desc, amount;
+    
+    if(format==='credit'){
+      // Posted Date, Reference Number, Payee, Address, Amount
+      date = cols[0].trim();
+      desc = cols[2].trim();
+      const amtRaw = cols[4] ? cols[4].replace(/,/g,'').replace(/"/g,'').trim() : '';
+      amount = parseFloat(amtRaw);
+    } else {
+      // Date, Description, Amount, Running Bal
+      date = cols[0].trim();
+      desc = cols[1].trim();
+      const amtRaw = cols[2].replace(/,/g,'').replace(/"/g,'').trim();
+      amount = parseFloat(amtRaw);
+    }
+    
     if(!date||!desc||isNaN(amount)||amount===0) continue;
     if(/beginning balance/i.test(desc)) continue;
+    
+    // For credit: payments from checking are internal transfers — mark for exclusion
+    if(format==='credit' && /payment from chk/i.test(desc)){
+      rows.push({date, desc, amount, forceExclude:true, excludeLabel:'Pago desde cuenta corriente'});
+      continue;
+    }
+    // For credit: positive amounts on credit card = credits/refunds, negative = charges
+    // Normalize: charges are expenses (positive abs value), credits are income
     rows.push({date, desc, amount});
   }
   return rows;
@@ -1326,7 +1361,7 @@ function renderImportPreview(grouped){
   wrap.innerHTML=keys.map(key=>{
     const {year,month,rows}=grouped[key];
     const txs=rows.map(row=>{
-      const cat=categorizeTx(row.desc,row.amount);
+      const cat=categorizeTx(row.desc, row.amount, row.forceExclude, row.excludeLabel);
       return {...row,...cat};
     });
     const softExcluded=txs.filter(r=>r.exclude);
@@ -1446,7 +1481,7 @@ function updateExcludedCat(key, date, desc, newCat, selectEl){
 
 function confirmImportMonth(key, year, month){
   const {rows, overrides={}, recovered=[]}=pendingTxByMonth[key];
-  const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc,r.amount)}));
+  const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc, r.amount, r.forceExclude, r.excludeLabel)}));
   const active=txs.filter(r=>!r.exclude);
 
   const items=[];
