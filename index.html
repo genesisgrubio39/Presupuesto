@@ -358,6 +358,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
               <div class="form-group"><label>Categoría</label><select id="exp-cat">
                 <optgroup label="Bills / Servicios">
                   <option value="Bills – Mortgage">Mortgage</option>
+                  <option value="Bills – HOA">HOA</option>
                   <option value="Bills – Renta">Renta</option>
                   <option value="Bills – Agua">Agua</option>
                   <option value="Bills – Gas">Gas</option>
@@ -377,6 +378,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
                 </optgroup>
                 <optgroup label="Transporte">
                   <option value="Transporte – Gasolina">Gasolina</option>
+                  <option value="Transporte – Auto Loan">Auto Loan</option>
                   <option value="Transporte – Mantenimiento">Mantenimiento auto</option>
                   <option value="Transporte – Uber/Lyft">Uber / Lyft</option>
                   <option value="Transporte – Otro">Transporte otro</option>
@@ -1191,7 +1193,8 @@ const CAT_RULES = [
   {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
   // TRANSPORTE
   {match:/shell|exxon|chevron|bp\b|valero|murphy|circle k|gas station/i, cat:'Transporte – Gasolina', type:'expense'},
-  {match:/gm financial|ford motor|toyota.*finance|honda.*finance/i, cat:'Transporte – Mantenimiento', type:'expense'},
+  {match:/tamarron|hoa|homeown.*assn|homeowners.*assn|association.*dues/i, cat:'Bills – HOA', type:'expense'},
+  {match:/toyota.*lease|toyota.*ach|gm financial|ford motor|honda.*finance|auto loan|car loan|carmax auto/i, cat:'Transporte – Auto Loan', type:'expense'},
   {match:/uber|lyft/i, cat:'Transporte – Uber/Lyft', type:'expense'},
   {match:/autozone|advance auto|o\'reilly|napa auto/i, cat:'Transporte – Mantenimiento', type:'expense'},
   // COMIDA
@@ -1359,9 +1362,9 @@ function renderImportPreview(grouped){
 function getCatOptions(selected){
   const allCats=[
     {g:'Ingresos',opts:['Salario W-2','Freelance 1099','Trading – retiro','Otro ingreso']},
-    {g:'Bills',opts:['Bills – Mortgage','Bills – Renta','Bills – Agua','Bills – Gas','Bills – Electricidad','Bills – Teléfono','Bills – Internet','Bills – Seguro médico','Bills – Seguro auto']},
+    {g:'Bills',opts:['Bills – Mortgage','Bills – HOA','Bills – Renta','Bills – Agua','Bills – Gas','Bills – Electricidad','Bills – Teléfono','Bills – Internet','Bills – Seguro médico','Bills – Seguro auto']},
     {g:'Suscripciones',opts:['Suscripciones – Streaming','Suscripciones – Música','Suscripciones – Software','Suscripciones – Gym','Suscripciones – Trading','Suscripciones – Otro']},
-    {g:'Transporte',opts:['Transporte – Gasolina','Transporte – Mantenimiento','Transporte – Uber/Lyft','Transporte – Otro']},
+    {g:'Transporte',opts:['Transporte – Gasolina','Transporte – Auto Loan','Transporte – Mantenimiento','Transporte – Uber/Lyft','Transporte – Otro']},
     {g:'Comida',opts:['Comida – Supermercado','Comida – Restaurantes','Comida – Delivery']},
     {g:'Compras',opts:['Compras – Ropa','Compras – Hogar','Compras – Electrónica','Compras – Otro']},
     {g:'Salud',opts:['Salud – Copay/Médico','Salud – Dentista','Salud – Medicamentos','Salud – Otro']},
