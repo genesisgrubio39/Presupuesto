@@ -298,6 +298,18 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     </div>
     <div id="missing-panel-wrap"></div>
 
+        <!-- SEARCH -->
+        <div class="card">
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="tx-search" placeholder="🔍 Buscar transacción (ej. HEB, Shell, Netflix...)" style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--r);font-size:13px" oninput="renderSearch()">
+            <button class="btn btn-sm" onclick="document.getElementById('tx-search').value='';renderSearch()">✕</button>
+          </div>
+          <div id="search-results" style="margin-top:8px"></div>
+        </div>
+
+        <!-- IMPORTED FILES -->
+        <div id="imported-files-panel"></div>
+
     <!-- DONUT CHARTS ROW -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem" id="monthly-donuts-grid">
       <div class="card" style="margin-bottom:0">
@@ -724,13 +736,15 @@ function closeModal(){document.getElementById('modal-overlay').classList.remove(
 // ── ADD / DELETE / EDIT ───────────────────────────
 function addItem(type){
   const data=getCurrentData();
+  let newItem;
   if(type==='income'){
     const name=document.getElementById('inc-name').value.trim();
     const cat=document.getElementById('inc-cat').value;
     const amount=parseFloat(document.getElementById('inc-amount').value)||0;
     const rec=document.getElementById('inc-rec').checked;
     if(!name||!amount){alert('Completa nombre y monto.');return;}
-    data.items.push({id:Date.now()+Math.random(),type:'income',name,cat,amount,recurring:rec,fixed:true});
+    newItem={id:Date.now()+Math.random(),type:'income',name,cat,amount,recurring:rec,fixed:true};
+    data.items.push(newItem);
     document.getElementById('inc-name').value='';
     document.getElementById('inc-amount').value='';
     document.getElementById('inc-rec').checked=false;
@@ -741,14 +755,36 @@ function addItem(type){
     const rec=document.getElementById('exp-rec').checked;
     const fix=document.getElementById('exp-fix').checked;
     if(!name||!amount){alert('Completa nombre y monto.');return;}
-    data.items.push({id:Date.now()+Math.random(),type:'expense',name,cat,amount,recurring:rec,fixed:fix||rec});
+    newItem={id:Date.now()+Math.random(),type:'expense',name,cat,amount,recurring:rec,fixed:fix||rec};
+    data.items.push(newItem);
     document.getElementById('exp-name').value='';
     document.getElementById('exp-amount').value='';
     document.getElementById('exp-rec').checked=false;
     document.getElementById('exp-fix').checked=false;
   }
-  setCurrentData(data);markUnsaved();renderMonthly();
+  setCurrentData(data);
+  // Propagate to future months if recurring+fixed
+  if(newItem.recurring&&newItem.fixed){
+    propagateToFutureMonths(newItem, activeYear, activeMonth);
+  }
+  markUnsaved();saveToDrive();renderMonthly();renderAnnual();
 }
+
+function propagateToFutureMonths(item, fromYear, fromMonth){
+  // Add to all future months of the current year + next year
+  for(let i=1;i<=12;i++){
+    let m=fromMonth+i, y=fromYear;
+    if(m>11){m=m-12;y++;}
+    const d=getMonth(y,m)||emptyMonth();
+    // Don't add if already exists with same name
+    const exists=d.items.some(x=>x.name===item.name&&x.cat===item.cat);
+    if(!exists){
+      d.items.push({...item,id:Date.now()+Math.random()});
+      setMonth(y,m,d);
+    }
+  }
+}
+
 
 function deleteItem(id){
   const data=getCurrentData();
@@ -944,6 +980,8 @@ function renderMonthly(){
   renderMonthlyDonuts(expenses, incomes, totalExp, totalInc);
   renderCatBreakdown(expenses,totalExp);
   renderMonthlyChart();
+  renderImportedFilesPanel();
+  renderSearch();
 }
 
 // ── MISSING PANEL ─────────────────────────────────
@@ -1173,6 +1211,7 @@ const CAT_RULES = [
   {match:/beginning balance/i, exclude:true, excludeLabel:'Balance inicial'},
   // ZELLE INTERNOS — todas las variaciones de nombres
   {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
+  {match:/one finance.*eddymar|eddymar.*one finance/i, exclude:true, excludeLabel:'Transferencia interna Eddymar (One Finance)'},
   {match:/zelle payment (to|from) genesis gonzalez/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
   {match:/zelle payment (to|from) genesis gonzalezrubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
   {match:/zelle payment to genesis gonzalez-rubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
@@ -1212,6 +1251,21 @@ const CAT_RULES = [
   {match:/perplexity/i, cat:'Suscripciones – Software', type:'expense'},
   {match:/ezee fiber/i, cat:'Bills – Internet', type:'expense'},
   {match:/eqt.*community health|community health/i, cat:'Salud – Copay/Médico', type:'expense'},
+  {match:/h-e-b|heb\b/i, cat:'Comida – Supermercado', type:'expense'},
+  {match:/buc-ee|bucees/i, cat:'Transporte – Gasolina', type:'expense'},
+  {match:/wm supercenter|walmart supercenter/i, cat:'Comida – Supermercado', type:'expense'},
+  {match:/books a million|bam\b/i, cat:'Educación – Materiales', type:'expense'},
+  {match:/br factory|bath.*body|body.*works/i, cat:'Compras – Hogar', type:'expense'},
+  {match:/express#|express \d/i, cat:'Compras – Ropa', type:'expense'},
+  {match:/katy mills/i, cat:'Entretenimiento – Salidas', type:'expense'},
+  {match:/loy\*mem|memorial.*hermann|memhermann/i, cat:'Salud – Copay/Médico', type:'expense'},
+  {match:/marshalls/i, cat:'Compras – Ropa', type:'expense'},
+  {match:/sq \*josmes|josmes studio/i, cat:'Salud – Otro', type:'expense'},
+  {match:/tst\*/i, cat:'Comida – Restaurantes', type:'expense'},
+  {match:/crazy bites|maxi arepa|pasteles/i, cat:'Comida – Restaurantes', type:'expense'},
+  {match:/nellis auction/i, cat:'Compras – Otro', type:'expense'},
+  {match:/favor\b/i, cat:'Comida – Delivery', type:'expense'},
+  {match:/cash rewards statement credit/i, cat:'Otro ingreso', type:'income'},
   {match:/cash rewards statement credit/i, cat:'Otro ingreso', type:'income'},
   {match:/tamarron|hoa|homeown.*assn|homeowners.*assn|association.*dues/i, cat:'Bills – HOA', type:'expense'},
   {match:/toyota.*lease|toyota.*ach|gm financial|ford motor|honda.*finance|auto loan|car loan|carmax auto/i, cat:'Transporte – Auto Loan', type:'expense'},
@@ -1480,17 +1534,15 @@ function updateTxCat(key, idx, newCat, selectEl){
 }
 
 function saveCategorizationRule(desc, cat){
-  if(!desc||!cat||cat==='Sin especificar'||cat==='Excluir') return;
+  if(!desc||!cat) return;
   if(!appData.catRules) appData.catRules=[];
-  // Store first 20 chars of description as key — enough to match recurring transactions
   const keyword=desc.substring(0,20).trim();
   const existing=appData.catRules.find(r=>r.keyword===keyword);
   if(existing){
-    existing.cat=cat; // update if already exists
+    existing.cat=cat;
   } else {
     appData.catRules.push({keyword, cat});
   }
-  // Save to Drive immediately
   saveToDrive();
 }
 
@@ -1539,15 +1591,137 @@ function confirmImportMonth(key, year, month){
   });
 
   const existing=getMonth(year,month)||emptyMonth();
-  existing.items=[...existing.items,...items];
+  const existingItems=existing.items||[];
+  let dupes=0;
+  const uniqueItems=items.filter(item=>{
+    if(isDuplicate(item,existingItems)){dupes++;return false;}
+    return true;
+  });
+  existing.items=[...existingItems,...uniqueItems];
   setMonth(year,month,existing);
   saveToDrive();
-
   const card=document.getElementById('imp-month-'+key);
-  if(card) card.innerHTML=`<div class="alert alert-success">&#10003; ${items.length} transacciones importadas a ${MONTHS[month]} ${year}.</div>`;
+  const dupeMsg=dupes>0?` (${dupes} duplicados ignorados)`:'';
+  if(card) card.innerHTML=`<div class="alert alert-success">&#10003; ${uniqueItems.length} transacciones importadas a ${MONTHS[month]} ${year}${dupeMsg}.</div>`;
 }
 
-// ── EXPORT / IMPORT ───────────────────────────────
+// ── SEARCH ────────────────────────────────────────
+function renderSearch(){
+  const q=(document.getElementById('tx-search')||{}).value||'';
+  const el=document.getElementById('search-results');
+  if(!el) return;
+  if(!q.trim()){el.innerHTML='';return;}
+  const data=getCurrentData();
+  const items=(data.items||[]).filter(i=>
+    i.name.toLowerCase().includes(q.toLowerCase())||
+    i.cat.toLowerCase().includes(q.toLowerCase())
+  );
+  if(!items.length){el.innerHTML='<p style="font-size:13px;color:var(--text2)">Sin resultados para "'+q+'".</p>';return;}
+  const total=items.reduce((s,i)=>s+i.amount,0);
+  el.innerHTML=`<div style="font-size:12px;color:var(--text2);margin-bottom:6px">${items.length} resultado(s) · Total: <strong>${fmt(total)}</strong></div>`+
+  items.map(item=>`
+    <div class="item-row">
+      <div class="item-row-main">
+        <div class="item-info">
+          <span class="item-name">${item.name}</span>
+          <span class="item-sub">${item.cat}</span>
+        </div>
+        ${item.recurring?'<span class="badge badge-rec">Rec</span>':item.fixed?'<span class="badge badge-fix">Fijo</span>':'<span class="badge badge-var">Var</span>'}
+        <span class="item-amount" style="color:${item.type==='income'?'var(--green)':'var(--red)'}">${fmt(item.amount)}</span>
+        <button class="btn btn-icon btn-sm" onclick="toggleEdit(${item.id})" title="Editar">&#9998;</button>
+        <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteItem(${item.id})" title="Eliminar">&#10005;</button>
+      </div>
+      <div class="edit-panel" id="edit-${item.id}">
+        <div class="edit-row">
+          <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Descripción</label><input id="ename-${item.id}" value="${item.name.replace(/"/g,'&quot;')}"></div>
+          <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Monto</label><input id="eamt-${item.id}" type="number" value="${item.amount}" step="0.01" min="0"></div>
+          <button class="btn btn-success btn-sm" style="margin-top:16px" onclick="saveEdit(${item.id})">&#10003;</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// ── IMPORTED FILES PANEL ──────────────────────────
+function renderImportedFilesPanel(){
+  const el=document.getElementById('imported-files-panel');
+  if(!el) return;
+  const data=getCurrentData();
+  const imported=(data.items||[]).filter(i=>i.imported);
+  if(!imported.length){el.innerHTML='';return;}
+  // Group by account
+  const accs={};
+  imported.forEach(i=>{
+    const k=i.account||'Desconocido';
+    if(!accs[k]) accs[k]=[];
+    accs[k].push(i);
+  });
+  el.innerHTML=`<div class="card">
+    <div class="card-title">&#128190; Archivos importados este mes</div>
+    ${Object.entries(accs).map(([acc,items])=>{
+      const gid='imp-acc-'+acc.replace(/\s/g,'_');
+      const total=items.reduce((s,i)=>s+i.amount,0);
+      return `<div style="margin-bottom:6px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+        <div onclick="toggleGroup('${gid}')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;background:var(--bg2);user-select:none">
+          <span style="flex:1;font-size:13px;font-weight:500">${acc}</span>
+          <span style="font-size:12px;color:var(--text2)">(${items.length})</span>
+          <span style="font-size:13px;font-weight:600">${fmt(total)}</span>
+          <span style="font-size:11px;color:var(--text3)" id="arr-${gid}">▼</span>
+        </div>
+        <div id="${gid}" style="display:none;max-height:280px;overflow-y:auto">
+          ${items.map(item=>`
+            <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0">
+              <div class="item-row-main">
+                <div class="item-info">
+                  <span class="item-name">${item.name}</span>
+                  <span class="item-sub">${item.cat} · ${item.date||''}</span>
+                </div>
+                <span class="item-amount" style="color:${item.type==='income'?'var(--green)':'var(--red)'}">${fmt(item.amount)}</span>
+                <button class="btn btn-icon btn-sm" onclick="toggleEditImported(${item.id},'${gid}')" title="Cambiar categoría">&#9998;</button>
+                <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteItem(${item.id})" title="Eliminar">&#10005;</button>
+              </div>
+              <div class="edit-panel" id="edit-imp-${item.id}">
+                <div class="edit-row">
+                  <div style="grid-column:span 2"><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Categoría</label>
+                    <select id="ecat-${item.id}" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text)">${getCatOptions(item.cat)}</select>
+                  </div>
+                  <button class="btn btn-success btn-sm" style="margin-top:16px" onclick="saveEditCat(${item.id})">&#10003;</button>
+                </div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function toggleEditImported(id, gid){
+  const panel=document.getElementById('edit-imp-'+id);
+  if(panel) panel.classList.toggle('open');
+}
+
+function saveEditCat(id){
+  const data=getCurrentData();
+  const item=data.items.find(i=>i.id==id);
+  if(!item) return;
+  const newCat=document.getElementById('ecat-'+id).value;
+  const newType=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
+  item.cat=newCat;item.type=newType;
+  setCurrentData(data);
+  saveCategorizationRule(item.name, newCat);
+  markUnsaved();saveToDrive();renderMonthly();
+}
+
+// ── DUPLICATE DETECTION ───────────────────────────
+function isDuplicate(newItem, existingItems){
+  return existingItems.some(e=>
+    e.imported &&
+    e.name.substring(0,30)===newItem.name.substring(0,30) &&
+    Math.abs(e.amount-newItem.amount)<0.01 &&
+    e.date===newItem.date
+  );
+}
+
+
 function exportJSON(){
   const blob=new Blob([JSON.stringify(appData,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
