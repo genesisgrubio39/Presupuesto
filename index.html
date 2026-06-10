@@ -1168,10 +1168,10 @@ const _origGoAnnual = typeof goAnnual === 'function' ? goAnnual : null;
 
 // ── CSV CATEGORIZATION RULES ──────────────────────
 const CAT_RULES = [
-  // EXCLUSIONS (return null to skip)
-  {match:/mobile banking payment to crd/i, exclude:true},
-  {match:/beginning balance/i, exclude:true},
-  // ZELLE INTERNOS (excluir pero mostrar)
+  // EXCLUSIONS — visibles pero excluidas del balance
+  {match:/mobile banking payment to crd/i, exclude:true, excludeLabel:'Pago a tarjeta de crédito'},
+  {match:/beginning balance/i, exclude:true, excludeLabel:'Balance inicial'},
+  // ZELLE INTERNOS
   {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
   {match:/zelle payment (to|from) genesis gonzalez/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
   // ZELLE EXTERNOS
@@ -1328,10 +1328,7 @@ function renderImportPreview(grouped){
       const cat=categorizeTx(row.desc,row.amount);
       return {...row,...cat};
     });
-    // Hard excluded = mobile banking, beginning balance (never shown as recoverable)
-    const hardExcluded=txs.filter(r=>r.exclude&&!r.excludeLabel);
-    // Soft excluded = internal Zelle (shown but excluded)
-    const softExcluded=txs.filter(r=>r.exclude&&r.excludeLabel);
+    const softExcluded=txs.filter(r=>r.exclude);
     const active=txs.filter(r=>!r.exclude);
 
     const totalInc=active.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
@@ -1384,11 +1381,6 @@ function renderImportPreview(grouped){
                 </td>
                 <td style="text-align:right;color:var(--text3)">${fmt(Math.abs(tx.amount))}</td>
               </tr>`).join('')}
-            `:''}
-            ${hardExcluded.length?`
-              <tr><td colspan="4" style="padding:4px 6px;font-size:10px;color:var(--text3);background:var(--bg3)">
-                ${hardExcluded.length} transacciones ocultadas (pagos a tarjeta, balances iniciales)
-              </td></tr>
             `:''}
           </tbody>
         </table>
