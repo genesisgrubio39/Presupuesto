@@ -805,7 +805,15 @@ function saveEdit(id){
   const newAmt=parseFloat(document.getElementById('eamt-'+id).value)||0;
   if(!newName||!newAmt){alert('Nombre y monto requeridos.');return;}
   item.name=newName;item.amount=newAmt;
-  setCurrentData(data);markUnsaved();renderMonthly();
+  // Also save category if field exists
+  const catEl=document.getElementById('ecat-'+id);
+  if(catEl&&catEl.value){
+    const newCat=catEl.value;
+    const newType=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
+    item.cat=newCat;item.type=newType;
+    saveCategorizationRule(newName, newCat);
+  }
+  setCurrentData(data);markUnsaved();saveToDrive();renderMonthly();
 }
 
 // ── RENDER ANNUAL ─────────────────────────────────
@@ -1053,6 +1061,13 @@ function renderGroupedList(elId, items, groupBy){
                 <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Descripción</label><input id="ename-${item.id}" value="${item.name.replace(/"/g,'&quot;')}"></div>
                 <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Monto</label><input id="eamt-${item.id}" type="number" value="${item.amount}" step="0.01" min="0"></div>
                 <button class="btn btn-success btn-sm" style="margin-top:16px" onclick="saveEdit(${item.id})">&#10003;</button>
+              </div>
+              <div style="margin-top:6px">
+                <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Categoría</label>
+                <div style="display:flex;gap:8px">
+                  <select id="ecat-${item.id}" style="flex:1;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text)">${getCatOptions(item.cat)}</select>
+                  <button class="btn btn-success btn-sm" onclick="saveEditCat(${item.id})">&#10003; Cat</button>
+                </div>
               </div>
             </div>
           </div>`).join('')}
