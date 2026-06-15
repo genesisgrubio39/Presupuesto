@@ -1221,90 +1221,119 @@ const _origGoAnnual = typeof goAnnual === 'function' ? goAnnual : null;
 
 // ── CSV CATEGORIZATION RULES ──────────────────────
 const CAT_RULES = [
-  // EXCLUSIONS — visibles pero excluidas del balance
+  // ── EXCLUSIONES ──────────────────────────────────
   {match:/mobile banking payment to crd/i, exclude:true, excludeLabel:'Pago a tarjeta de crédito'},
   {match:/beginning balance/i, exclude:true, excludeLabel:'Balance inicial'},
-  // ZELLE INTERNOS — todas las variaciones de nombres
+  {match:/online banking transfer (to|from) chk/i, exclude:true, excludeLabel:'Transferencia interna entre cuentas'},
+  {match:/bkofamerica mobile.*deposit/i, exclude:true, excludeLabel:'Depósito móvil interno'},
+  // ── ZELLE INTERNOS ────────────────────────────────
+  {match:/zelle payment (to|from) eddymar fuenmayor chacin/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
   {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
-  {match:/one finance.*eddymar|eddymar.*one finance/i, exclude:true, excludeLabel:'Transferencia interna Eddymar (One Finance)'},
+  {match:/zelle payment (to|from) genesis gonzalez-rubio linares/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
+  {match:/zelle payment (to|from) genesis gonzalezrubiolinares/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
   {match:/zelle payment (to|from) genesis gonzalez/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
-  {match:/zelle payment (to|from) genesis gonzalezrubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
-  {match:/zelle payment to genesis gonzalez-rubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
-  {match:/zelle payment from genesis gonzalez-rubio/i, exclude:true, excludeLabel:'Transferencia interna Genesis'},
-  // ZELLE EXTERNOS
-  {match:/zelle payment from/i, cat:'Zelle – Ingreso', type:'income'},
-  {match:/zelle payment to/i, cat:'Zelle – Transferencia', type:'expense'},
-  // INGRESOS
-  {match:/robinhood/i, cat:'Trading – retiro', type:'income'},
-  {match:/webull/i, cat:'Trading – retiro', type:'income'},
-  {match:/instacart|shipt|stripe.*instacart/i, cat:'Freelance 1099', type:'income'},
-  {match:/direct dep|directo|payroll|nomina|nómina/i, cat:'Salario W-2', type:'income'},
-  // BILLS
-  {match:/verizon|at&t|t-mobile|sprint/i, cat:'Bills – Teléfono', type:'expense'},
-  {match:/fbs fort bend|mortgage|home loan/i, cat:'Bills – Mortgage', type:'expense'},
-  {match:/insurance|seguro/i, cat:'Bills – Seguro médico', type:'expense'},
-  {match:/geico|state farm|allstate|progressive/i, cat:'Bills – Seguro auto', type:'expense'},
-  {match:/water|agua|utility/i, cat:'Bills – Agua', type:'expense'},
-  {match:/gas company|atmos|centerpoint/i, cat:'Bills – Gas', type:'expense'},
-  {match:/electric|txu|reliant|nrg/i, cat:'Bills – Electricidad', type:'expense'},
-  {match:/xfinity|comcast|spectrum|att internet/i, cat:'Bills – Internet', type:'expense'},
-  // SUSCRIPCIONES
-  {match:/netflix/i, cat:'Suscripciones – Streaming', type:'expense'},
-  {match:/disney|hulu|paramount|peacock|max\b/i, cat:'Suscripciones – Streaming', type:'expense'},
-  {match:/spotify|apple music|youtube music/i, cat:'Suscripciones – Música', type:'expense'},
-  {match:/amazon prime/i, cat:'Suscripciones – Otro', type:'expense'},
-  {match:/apple\.com\/bill|apple card/i, cat:'Suscripciones – Otro', type:'expense'},
-  {match:/amp global|tradezella|quant.*data|tradingview|bookmap|atas/i, cat:'Suscripciones – Trading', type:'expense'},
-  {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
-  // TRANSPORTE
-  {match:/shell|exxon|chevron|bp\b|valero|murphy|circle k|gas station/i, cat:'Transporte – Gasolina', type:'expense'},
+  // ── ZELLE EXTERNOS ────────────────────────────────
+  {match:/zelle payment from/i, cat:'Zelle \u2013 Ingreso', type:'income'},
+  {match:/zelle payment to/i, cat:'Zelle \u2013 Transferencia', type:'expense'},
+  // ── INGRESOS ─────────────────────────────────────
   {match:/igloo products.*payroll|payroll.*igloo/i, cat:'Salario W-2', type:'income'},
-  {match:/usr electricbill|usr.*electric/i, cat:'Bills – Electricidad', type:'expense'},
+  {match:/robinhood.*credits|robinhood.*deposit/i, cat:'Trading \u2013 retiro', type:'income'},
+  {match:/robinhood/i, cat:'Trading \u2013 retiro', type:'income'},
+  {match:/webull|paypal.*webull/i, cat:'Trading \u2013 retiro', type:'income'},
+  {match:/tradestation.*payments/i, cat:'Trading \u2013 retiro', type:'income'},
+  {match:/instacart|shipt/i, cat:'Freelance 1099', type:'income'},
+  {match:/favor.*indn/i, cat:'Freelance 1099', type:'income'},
+  {match:/direct dep|nomina|n\u00f3mina/i, cat:'Salario W-2', type:'income'},
+  {match:/irs treas.*tax ref/i, cat:'Otro ingreso', type:'income'},
+  {match:/cash rewards statement credit/i, cat:'Otro ingreso', type:'income'},
   {match:/one finance/i, cat:'Otro ingreso', type:'income'},
-  {match:/bkofamerica atm.*withdrwl|atm.*withdrwl/i, cat:'Sin especificar', type:'expense'},
-  {match:/squarespace|sqsp/i, cat:'Suscripciones – Software', type:'expense'},
-  {match:/perplexity/i, cat:'Suscripciones – Software', type:'expense'},
-  {match:/ezee fiber/i, cat:'Bills – Internet', type:'expense'},
-  {match:/eqt.*community health|community health/i, cat:'Salud – Copay/Médico', type:'expense'},
-  {match:/h-e-b|heb\b/i, cat:'Comida – Supermercado', type:'expense'},
-  {match:/buc-ee|bucees/i, cat:'Transporte – Gasolina', type:'expense'},
-  {match:/wm supercenter|walmart supercenter/i, cat:'Comida – Supermercado', type:'expense'},
-  {match:/books a million|bam\b/i, cat:'Educación – Materiales', type:'expense'},
-  {match:/br factory|bath.*body|body.*works/i, cat:'Compras – Hogar', type:'expense'},
-  {match:/express#|express \d/i, cat:'Compras – Ropa', type:'expense'},
-  {match:/katy mills/i, cat:'Entretenimiento – Salidas', type:'expense'},
-  {match:/loy\*mem|memorial.*hermann|memhermann/i, cat:'Salud – Copay/Médico', type:'expense'},
-  {match:/marshalls/i, cat:'Compras – Ropa', type:'expense'},
-  {match:/sq \*josmes|josmes studio/i, cat:'Salud – Otro', type:'expense'},
-  {match:/tst\*/i, cat:'Comida – Restaurantes', type:'expense'},
-  {match:/crazy bites|maxi arepa|pasteles/i, cat:'Comida – Restaurantes', type:'expense'},
-  {match:/nellis auction/i, cat:'Compras – Otro', type:'expense'},
-  {match:/favor\b/i, cat:'Comida – Delivery', type:'expense'},
-  {match:/cash rewards statement credit/i, cat:'Otro ingreso', type:'income'},
-  {match:/cash rewards statement credit/i, cat:'Otro ingreso', type:'income'},
-  {match:/tamarron|hoa|homeown.*assn|homeowners.*assn|association.*dues/i, cat:'Bills – HOA', type:'expense'},
-  {match:/toyota.*lease|toyota.*ach|gm financial|ford motor|honda.*finance|auto loan|car loan|carmax auto/i, cat:'Transporte – Auto Loan', type:'expense'},
-  {match:/uber|lyft/i, cat:'Transporte – Uber/Lyft', type:'expense'},
-  {match:/autozone|advance auto|o\'reilly|napa auto/i, cat:'Transporte – Mantenimiento', type:'expense'},
-  // COMIDA
-  {match:/heb|walmart grocery|kroger|aldi|whole foods|trader joe|costco|sam\'s/i, cat:'Comida – Supermercado', type:'expense'},
-  {match:/walmart/i, cat:'Comida – Supermercado', type:'expense'},
-  {match:/doordash|ubereats|grubhub|postmates|favor/i, cat:'Comida – Delivery', type:'expense'},
-  {match:/mcdonald|chick-fil|whataburger|wendy|taco bell|subway|chipotle|domino|pizza|marcos pizza|culver/i, cat:'Comida – Restaurantes', type:'expense'},
-  // COMPRAS
-  {match:/amazon\b/i, cat:'Compras – Otro', type:'expense'},
-  {match:/target\b/i, cat:'Compras – Hogar', type:'expense'},
-  {match:/ross|burlington|tj maxx|marshalls|old navy|gap|h&m/i, cat:'Compras – Ropa', type:'expense'},
-  {match:/best buy|apple store|micro center/i, cat:'Compras – Electrónica', type:'expense'},
-  // SALUD
-  {match:/cvs|walgreens|rite aid|pharmacy/i, cat:'Salud – Medicamentos', type:'expense'},
-  {match:/hospital|clinic|medical|dental|vision|doctor|dr\./i, cat:'Salud – Copay/Médico', type:'expense'},
-  // EDUCACION
-  {match:/udemy|coursera|skillshare|teachable/i, cat:'Educación – Cursos', type:'expense'},
-  // ENTRETENIMIENTO
-  {match:/movie|cinema|amc|regal/i, cat:'Entretenimiento – Salidas', type:'expense'},
+  {match:/fidelity.*fidelity/i, cat:'Ahorros \u2013 Inversi\u00f3n', type:'expense'},
+  // ── MORTGAGE / HOA ───────────────────────────────
+  {match:/pennymac|penny mac/i, cat:'Bills \u2013 Mortgage', type:'expense'},
+  {match:/fbs fort bend/i, cat:'Bills \u2013 Mortgage', type:'expense'},
+  {match:/tamarron|homeown.*assn|association.*dues|friends of tamarron/i, cat:'Bills \u2013 HOA', type:'expense'},
+  // ── BILLS ─────────────────────────────────────────
+  {match:/verizon/i, cat:'Bills \u2013 Tel\u00e9fono', type:'expense'},
+  {match:/at&t|t-mobile|sprint/i, cat:'Bills \u2013 Tel\u00e9fono', type:'expense'},
+  {match:/usr electricbill|usr.*electric/i, cat:'Bills \u2013 Electricidad', type:'expense'},
+  {match:/sienergy/i, cat:'Bills \u2013 Gas', type:'expense'},
+  {match:/ezee fiber/i, cat:'Bills \u2013 Internet', type:'expense'},
+  {match:/xfinity|comcast|spectrum/i, cat:'Bills \u2013 Internet', type:'expense'},
+  {match:/communityhealt.*health ins|communityhealtx/i, cat:'Bills \u2013 Seguro m\u00e9dico', type:'expense'},
+  {match:/geico|state farm|allstate|progressive/i, cat:'Bills \u2013 Seguro auto', type:'expense'},
+  {match:/hctra.*ez tag/i, cat:'Transporte \u2013 Otro', type:'expense'},
+  // ── SUSCRIPCIONES ─────────────────────────────────
+  {match:/apple\.com\/bill|apple\.com\/|applecom/i, cat:'Suscripciones \u2013 Otro', type:'expense'},
+  {match:/amazon prime/i, cat:'Suscripciones \u2013 Otro', type:'expense'},
+  {match:/netflix/i, cat:'Suscripciones \u2013 Streaming', type:'expense'},
+  {match:/disney|hulu|paramount|peacock/i, cat:'Suscripciones \u2013 Streaming', type:'expense'},
+  {match:/spotify|apple music|youtube music/i, cat:'Suscripciones \u2013 M\u00fasica', type:'expense'},
+  {match:/sqsp\*|squarespace/i, cat:'Suscripciones \u2013 Software', type:'expense'},
+  {match:/perplexity/i, cat:'Suscripciones \u2013 Software', type:'expense'},
+  {match:/claude\.ai|anthropic/i, cat:'Suscripciones \u2013 Software', type:'expense'},
+  {match:/surfshark/i, cat:'Suscripciones \u2013 Software', type:'expense'},
+  {match:/pipedream/i, cat:'Suscripciones \u2013 Software', type:'expense'},
+  {match:/tradingview/i, cat:'Suscripciones \u2013 Trading', type:'expense'},
+  {match:/amp global|tradezella|quant.*data|bookmap|atas/i, cat:'Suscripciones \u2013 Trading', type:'expense'},
+  {match:/blink\.com/i, cat:'Suscripciones \u2013 Otro', type:'expense'},
+  {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones \u2013 Gym', type:'expense'},
+  // ── TRANSPORTE ────────────────────────────────────
+  {match:/shell\b/i, cat:'Transporte \u2013 Gasolina', type:'expense'},
+  {match:/buc-ee|bucees/i, cat:'Transporte \u2013 Gasolina', type:'expense'},
+  {match:/exxon|chevron|bp\b|valero|murphy|circle k/i, cat:'Transporte \u2013 Gasolina', type:'expense'},
+  {match:/toyota ach lease/i, cat:'Transporte \u2013 Auto Loan', type:'expense'},
+  {match:/gm financial|ford motor|auto loan|carmax auto/i, cat:'Transporte \u2013 Auto Loan', type:'expense'},
+  {match:/uber|lyft/i, cat:'Transporte \u2013 Uber\/Lyft', type:'expense'},
+  {match:/autozone|advance auto|rock auto/i, cat:'Transporte \u2013 Mantenimiento', type:'expense'},
+  {match:/texas brakes|fine auto care|tread zone|auto care|supply auto parts/i, cat:'Transporte \u2013 Mantenimiento', type:'expense'},
+  // ── COMIDA ─────────────────────────────────────────
+  {match:/h-e-b|heb\b/i, cat:'Comida \u2013 Supermercado', type:'expense'},
+  {match:/walmart|wal-mart|wm supercenter/i, cat:'Comida \u2013 Supermercado', type:'expense'},
+  {match:/kroger|aldi|whole foods|trader joe|costco|sam\'s/i, cat:'Comida \u2013 Supermercado', type:'expense'},
+  {match:/fiesta mart/i, cat:'Comida \u2013 Supermercado', type:'expense'},
+  {match:/dollartree/i, cat:'Compras \u2013 Hogar', type:'expense'},
+  {match:/doordash|ubereats|grubhub|postmates/i, cat:'Comida \u2013 Delivery', type:'expense'},
+  {match:/favor\b/i, cat:'Comida \u2013 Delivery', type:'expense'},
+  {match:/tst\*/i, cat:'Comida \u2013 Restaurantes', type:'expense'},
+  {match:/mcdonald|whataburger|wendy|taco bell|subway|chipotle|domino/i, cat:'Comida \u2013 Restaurantes', type:'expense'},
+  {match:/marcos pizza|mod pizza|olive garden/i, cat:'Comida \u2013 Restaurantes', type:'expense'},
+  {match:/crazy bites|maxi arepa|pasteles|nuestra casa|da silva/i, cat:'Comida \u2013 Restaurantes', type:'expense'},
+  {match:/chick-fil/i, cat:'Comida \u2013 Restaurantes', type:'expense'},
+  // ── COMPRAS ───────────────────────────────────────
+  {match:/amazon mktpl|amazon mark|amazon reta|amazon\b/i, cat:'Compras \u2013 Otro', type:'expense'},
+  {match:/nellis auction/i, cat:'Compras \u2013 Otro', type:'expense'},
+  {match:/aliexpress|alipay/i, cat:'Compras \u2013 Otro', type:'expense'},
+  {match:/target\b/i, cat:'Compras \u2013 Hogar', type:'expense'},
+  {match:/ross store|ross\b/i, cat:'Compras \u2013 Ropa', type:'expense'},
+  {match:/burlington/i, cat:'Compras \u2013 Ropa', type:'expense'},
+  {match:/marshalls/i, cat:'Compras \u2013 Ropa', type:'expense'},
+  {match:/t\.j\. maxx|tjmaxx|tj maxx/i, cat:'Compras \u2013 Ropa', type:'expense'},
+  {match:/express#|express \d/i, cat:'Compras \u2013 Ropa', type:'expense'},
+  {match:/hot topic/i, cat:'Compras \u2013 Ropa', type:'expense'},
+  {match:/br factory|bath.*body/i, cat:'Compras \u2013 Hogar', type:'expense'},
+  {match:/best buy|micro center/i, cat:'Compras \u2013 Electr\u00f3nica', type:'expense'},
+  {match:/books a million/i, cat:'Educaci\u00f3n \u2013 Materiales', type:'expense'},
+  {match:/postal plus/i, cat:'Compras \u2013 Otro', type:'expense'},
+  {match:/spirit worx/i, cat:'Compras \u2013 Otro', type:'expense'},
+  // ── SALUD ─────────────────────────────────────────
+  {match:/cvs|walgreens|rite aid|pharmacy/i, cat:'Salud \u2013 Medicamentos', type:'expense'},
+  {match:/woodlands primary/i, cat:'Salud \u2013 Copay\/M\u00e9dico', type:'expense'},
+  {match:/loy\*mem|memorial.*hermann|memhermann/i, cat:'Salud \u2013 Copay\/M\u00e9dico', type:'expense'},
+  {match:/smi imaging/i, cat:'Salud \u2013 Copay\/M\u00e9dico', type:'expense'},
+  {match:/marcel dental/i, cat:'Salud \u2013 Dentista', type:'expense'},
+  {match:/sq \*josmes|josmes studio/i, cat:'Salud \u2013 Otro', type:'expense'},
+  {match:/hospital|clinic|medical|dental|doctor/i, cat:'Salud \u2013 Copay\/M\u00e9dico', type:'expense'},
+  // ── ENTRETENIMIENTO ───────────────────────────────
+  {match:/katy mills/i, cat:'Entretenimiento \u2013 Salidas', type:'expense'},
+  {match:/star cinema|cinema grill/i, cat:'Entretenimiento \u2013 Salidas', type:'expense'},
+  {match:/movie|amc|regal/i, cat:'Entretenimiento \u2013 Salidas', type:'expense'},
+  // ── EDUCACION ─────────────────────────────────────
+  {match:/udemy|coursera|skillshare/i, cat:'Educaci\u00f3n \u2013 Cursos', type:'expense'},
+  // ── OTROS ─────────────────────────────────────────
+  {match:/caribbean business.*tax|sq \*caribbean/i, cat:'Sin especificar', type:'expense'},
+  {match:/bkofamerica atm.*withdrwl/i, cat:'Sin especificar', type:'expense'},
+  {match:/bkofamerica atm.*deposit/i, cat:'Otro ingreso', type:'income'},
 ];
-
 function categorizeTx(desc, amount, forceExclude, excludeLabel){
   if(forceExclude) return {exclude:true, excludeLabel: excludeLabel||'Excluido'};
   const d = desc.toLowerCase();
@@ -1340,13 +1369,17 @@ function parseCSV(text){
   
   // Detect format by header
   let headerIdx = -1;
-  let format = 'debit'; // default BofA debit: Date, Description, Amount, Running Bal
+  let format = 'debit';
   
   for(let i=0;i<lines.length;i++){
-    if(/posted date.*reference.*payee.*amount/i.test(lines[i])){
+    if(/posted date.*reference.*payee/i.test(lines[i])){
       headerIdx=i; format='credit'; break;
     }
-    if(/date.*description.*amount/i.test(lines[i])){
+    if(/^date.*description.*amount/i.test(lines[i])){
+      headerIdx=i; format='debit'; break;
+    }
+    // Also detect debit with looser match
+    if(/date,description,amount/i.test(lines[i])){
       headerIdx=i; format='debit'; break;
     }
   }
@@ -1354,35 +1387,46 @@ function parseCSV(text){
 
   const rows = [];
   for(let i=headerIdx+1;i<lines.length;i++){
-    const cols = parseCSVLine(lines[i]);
-    if(cols.length<3) continue;
+    const line = lines[i];
+    if(!line.trim()) continue;
     
-    let date, desc, amount;
+    const cols = parseCSVLine(line);
+    if(cols.length<2) continue;
+    
+    let date='', desc='', amount=0;
     
     if(format==='credit'){
-      // Posted Date, Reference Number, Payee, Address, Amount
-      date = cols[0].trim();
-      desc = cols[2].trim();
-      const amtRaw = cols[4] ? cols[4].replace(/,/g,'').replace(/"/g,'').trim() : '';
-      amount = parseFloat(amtRaw);
+      date = cols[0]?cols[0].trim():'';
+      desc = cols[2]?cols[2].trim():'';
+      // Amount can be col 4 or col 3 depending on whether Address column exists
+      const amtRaw4 = cols[4]?cols[4].replace(/,/g,'').replace(/"/g,'').trim():'';
+      const amtRaw3 = cols[3]?cols[3].replace(/,/g,'').replace(/"/g,'').trim():'';
+      const amt4 = parseFloat(amtRaw4);
+      const amt3 = parseFloat(amtRaw3);
+      amount = !isNaN(amt4) ? amt4 : (!isNaN(amt3) ? amt3 : 0);
+      // If desc is empty, try col 1
+      if(!desc && cols[1]) desc = cols[1].trim();
     } else {
-      // Date, Description, Amount, Running Bal
-      date = cols[0].trim();
-      desc = cols[1].trim();
-      const amtRaw = cols[2].replace(/,/g,'').replace(/"/g,'').trim();
-      amount = parseFloat(amtRaw);
+      date = cols[0]?cols[0].trim():'';
+      desc = cols[1]?cols[1].trim():'';
+      const amtRaw = cols[2]?cols[2].replace(/,/g,'').replace(/"/g,'').trim():'';
+      amount = parseFloat(amtRaw)||0;
     }
     
-    if(!date||!desc||isNaN(amount)||amount===0) continue;
+    // Skip truly empty rows and header artifacts
+    if(!desc) continue;
+    if(/^date$|^posted date$|^description$/i.test(desc)) continue;
     if(/beginning balance/i.test(desc)) continue;
+    if(/^,+$/.test(line)) continue;
+    // Skip rows that look like summary lines (no date)
+    if(!date || !/\d{2}\/\d{2}\/\d{4}/.test(date)) continue;
     
-    // For credit: payments from checking are internal transfers — mark for exclusion
+    // Credit card: payment from checking = internal, mark for exclusion
     if(format==='credit' && /payment from chk/i.test(desc)){
       rows.push({date, desc, amount, forceExclude:true, excludeLabel:'Pago desde cuenta corriente'});
       continue;
     }
-    // For credit: positive amounts on credit card = credits/refunds, negative = charges
-    // Normalize: charges are expenses (positive abs value), credits are income
+
     rows.push({date, desc, amount});
   }
   return rows;
@@ -1680,6 +1724,7 @@ function renderImportedFilesPanel(){
           <span style="flex:1;font-size:13px;font-weight:500">${acc}</span>
           <span style="font-size:12px;color:var(--text2)">(${items.length})</span>
           <span style="font-size:13px;font-weight:600">${fmt(total)}</span>
+          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteImportedAccount('${acc.replace(/'/g,"\\'")}')" title="Eliminar esta importación">&#128465; Eliminar</button>
           <span style="font-size:11px;color:var(--text3)" id="arr-${gid}">▼</span>
         </div>
         <div id="${gid}" style="display:none;max-height:280px;overflow-y:auto">
@@ -1709,7 +1754,25 @@ function renderImportedFilesPanel(){
   </div>`;
 }
 
-function toggleEditImported(id, gid){
+function deleteImportedAccount(acc){
+  showModal(
+    'Eliminar importación',
+    'Se eliminarán todas las transacciones importadas de <strong>'+acc+'</strong> de <strong>'+MONTHS[activeMonth]+' '+activeYear+'</strong>.<br><br>Podrás volver a cargar el archivo después.',
+    ()=>{
+      const data=getCurrentData();
+      const before=data.items.length;
+      data.items=data.items.filter(i=>!(i.imported && i.account===acc));
+      const removed=before-data.items.length;
+      setCurrentData(data);
+      saveToDrive();
+      markSaved();
+      renderMonthly();
+      renderAnnual();
+    }
+  );
+}
+
+
   const panel=document.getElementById('edit-imp-'+id);
   if(panel) panel.classList.toggle('open');
 }
