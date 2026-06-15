@@ -1770,11 +1770,7 @@ function deleteImportedAccount(acc){
 }
 
 
-  const panel=document.getElementById('edit-imp-'+id);
-  if(panel) panel.classList.toggle('open');
-}
-
-function saveEditCat(id){
+function toggleEditImported(id, gid){
   const data=getCurrentData();
   const item=data.items.find(i=>i.id==id);
   if(!item) return;
