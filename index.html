@@ -844,6 +844,11 @@ function saveEdit(id){
   const catEl=document.getElementById('ecat-'+id);
   if(catEl&&catEl.value){
     const newCat=catEl.value;
+    if(newCat==='Excluir'){
+      setCurrentData(data); // conserva el nombre/monto editados antes de mover
+      moveItemToExcluded(id, newName);
+      return;
+    }
     const newType=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
     item.cat=newCat;item.type=newType;
     saveCategorizationRule(newName, newCat);
@@ -858,11 +863,35 @@ function saveEditCat(id){
   const catEl=document.getElementById('ecat-'+id);
   if(!catEl||!catEl.value) return;
   const newCat=catEl.value;
+  if(newCat==='Excluir'){ moveItemToExcluded(id, item.name); return; }
   const newType=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
   item.cat=newCat;item.type=newType;
   setCurrentData(data);
   saveCategorizationRule(item.name, newCat);
   markUnsaved();saveToDrive();renderMonthly();
+}
+// "Excluir" no es una categoría: es sacar la transacción del balance. Antes solo
+// se le cambiaba la etiqueta a cat:'Excluir' y la transacción seguía sumando
+// como gasto, sin volver a la lista de excluidas. Aquí se mueve de verdad.
+function moveItemToExcluded(id, learnName){
+  const data=getCurrentData();
+  const idx=(data.items||[]).findIndex(i=>i.id==id);
+  if(idx<0) return;
+  const it=data.items[idx];
+  if(!data.excludedItems) data.excludedItems=[];
+  data.excludedItems.push({
+    id:Date.now()+Math.random(),
+    name:it.name,
+    reason:'Excluido manualmente',
+    amount:it.amount,
+    ref:it.ref||null,
+    account:it.account||'',
+    date:it.date||''
+  });
+  data.items.splice(idx,1);
+  setCurrentData(data);
+  saveCategorizationRule(learnName||it.name, 'Excluir');
+  markUnsaved();saveToDrive();renderMonthly();renderAnnual();
 }
 // ── RENDER ANNUAL ─────────────────────────────────
 function renderAnnual(){
