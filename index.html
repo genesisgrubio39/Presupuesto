@@ -1273,6 +1273,15 @@ function categorizeTx(desc, amount, forceExclude, excludeLabel){
       r.keyword.toLowerCase().startsWith(keyword20.toLowerCase().substring(0,10))
     );
     if(learned){
+      // 'Excluir' es un estado de exclusión, no una categoría — debe devolver
+      // exclude:true (igual que las reglas automáticas de CAT_RULES) para que
+      // fluya correctamente por el filtro activas/excluidas, el contador de la
+      // vista previa y el guardado en excludedItems. Antes de esta corrección
+      // devolvía {cat:'Excluir'}, que el chequeo de balance sí interpretaba
+      // como excluido, pero que nunca llegaba a excludedItems ni a la sección
+      // "EXCLUIDAS DEL BALANCE" — la transacción quedaba excluida del balance
+      // pero invisible en cualquier panel.
+      if(learned.cat==='Excluir') return {exclude:true, excludeLabel:'Excluido manualmente'};
       const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(learned.cat)?'income':'expense';
       return {cat:learned.cat, type};
     }
