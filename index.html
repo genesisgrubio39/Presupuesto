@@ -277,10 +277,8 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
           </div>
           <div id="search-results" style="margin-top:8px"></div>
         </div>
-        <!-- IMPORTED FILES -->
+        <!-- IMPORTED FILES (incluye cargadas y excluidas por cuenta) -->
         <div id="imported-files-panel"></div>
-        <!-- EXCLUDED TRANSACTIONS -->
-        <div id="excluded-panel"></div>
     <!-- DONUT CHARTS ROW -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem" id="monthly-donuts-grid">
       <div class="card" style="margin-bottom:0">
@@ -941,7 +939,6 @@ function renderMonthly(){
   renderCatBreakdown(expenses,totalExp);
   renderMonthlyChart();
   renderImportedFilesPanel();
-  renderExcludedPanel();
   renderSearch();
 }
 // ── MISSING PANEL ─────────────────────────────────
@@ -1645,34 +1642,46 @@ function renderSearch(){
     </div>`).join('');
 }
 // ── IMPORTED FILES PANEL ──────────────────────────
+// Archivos importados este mes: agrupa por cuenta y muestra, dentro de cada
+// grupo, tanto las transacciones cargadas (activas, cuentan en el balance)
+// como las excluidas (no cuentan) — un solo lugar por importación, en vez de
+// dos paneles separados que podían dar la impresión de que las excluidas
+// "desaparecían" cuando esa cuenta simplemente no tenía ninguna ese mes.
 function renderImportedFilesPanel(){
   const el=document.getElementById('imported-files-panel');
   if(!el) return;
   const data=getCurrentData();
   const imported=(data.items||[]).filter(i=>i.imported);
-  if(!imported.length){el.innerHTML='';return;}
-  // Group by account
+  const excluded=data.excludedItems||[];
+  if(!imported.length && !excluded.length){el.innerHTML='';return;}
+  // Agrupar por cuenta, uniendo activas y excluidas
   const accs={};
   imported.forEach(i=>{
     const k=i.account||'Desconocido';
-    if(!accs[k]) accs[k]=[];
-    accs[k].push(i);
+    if(!accs[k]) accs[k]={active:[],excluded:[]};
+    accs[k].active.push(i);
+  });
+  excluded.forEach(i=>{
+    const k=i.account||'Desconocido';
+    if(!accs[k]) accs[k]={active:[],excluded:[]};
+    accs[k].excluded.push(i);
   });
   el.innerHTML=`<div class="card">
     <div class="card-title">&#128190; Archivos importados este mes</div>
-    ${Object.entries(accs).map(([acc,items])=>{
+    ${Object.entries(accs).map(([acc,grp])=>{
       const gid='imp-acc-'+acc.replace(/\s/g,'_');
-      const total=items.reduce((s,i)=>s+i.amount,0);
+      const totalActive=grp.active.reduce((s,i)=>s+i.amount,0);
+      const totalExcluded=grp.excluded.reduce((s,i)=>s+i.amount,0);
       return `<div style="margin-bottom:6px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
         <div onclick="toggleGroup('${gid}')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;background:var(--bg2);user-select:none">
           <span style="flex:1;font-size:13px;font-weight:500">${acc}</span>
-          <span style="font-size:12px;color:var(--text2)">(${items.length})</span>
-          <span style="font-size:13px;font-weight:600">${fmt(total)}</span>
+          <span style="font-size:12px;color:var(--text2)">(${grp.active.length} cargadas${grp.excluded.length?' · '+grp.excluded.length+' excluidas':''})</span>
+          <span style="font-size:13px;font-weight:600">${fmt(totalActive)}</span>
           <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteImportedAccount('${acc.replace(/'/g,"\\'")}')" title="Eliminar esta importación">&#128465; Eliminar</button>
           <span style="font-size:11px;color:var(--text3)" id="arr-${gid}">▼</span>
         </div>
-        <div id="${gid}" style="display:none;max-height:280px;overflow-y:auto">
-          ${items.map(item=>`
+        <div id="${gid}" style="display:none;max-height:340px;overflow-y:auto">
+          ${grp.active.map(item=>`
             <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0">
               <div class="item-row-main">
                 <div class="item-info">
@@ -1692,41 +1701,27 @@ function renderImportedFilesPanel(){
                 </div>
               </div>
             </div>`).join('')}
+          ${!grp.active.length?'<div style="font-size:12px;color:var(--text3);padding:8px 10px">Sin transacciones activas.</div>':''}
+          ${grp.excluded.length?`
+            <div style="padding:6px 10px;font-size:11px;color:var(--text3);background:var(--bg3);border-top:1px solid var(--border)">
+              EXCLUIDAS DEL BALANCE (${grp.excluded.length} · ${fmt(totalExcluded)}) — pagos a tarjeta propia, transferencias internas, balances iniciales. Usa "Recuperar" si alguna no debería estar excluida.
+            </div>
+            ${grp.excluded.map(item=>`
+              <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0;opacity:.7;background:var(--bg2)">
+                <div class="item-row-main">
+                  <div class="item-info">
+                    <span class="item-name" title="${item.name.replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${item.name}</span>
+                    <span class="item-sub">${item.reason||'Excluido'} · ${item.date||''}${item.ref?' · Ref: '+item.ref:''}</span>
+                  </div>
+                  <span class="item-amount">${fmt(item.amount)}</span>
+                  <button class="btn btn-sm" onclick="recoverExcludedItem(${item.id})" title="Agregar como transacción real">Recuperar</button>
+                  <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteExcludedItem(${item.id})" title="Eliminar definitivamente">&#10005;</button>
+                </div>
+              </div>`).join('')}
+          `:''}
         </div>
       </div>`;
     }).join('')}
-  </div>`;
-}
-// ── EXCLUDED TRANSACTIONS PANEL ───────────────────
-function renderExcludedPanel(){
-  const el=document.getElementById('excluded-panel');
-  if(!el) return;
-  const data=getCurrentData();
-  const excluded=data.excludedItems||[];
-  if(!excluded.length){el.innerHTML='';return;}
-  const total=excluded.reduce((s,i)=>s+i.amount,0);
-  const gid='excluded-list';
-  el.innerHTML=`<div class="card">
-    <div onclick="toggleGroup('${gid}')" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;margin-bottom:0">
-      <div class="card-title" style="margin-bottom:0;flex:1">&#128683; Transacciones excluidas del balance este mes (${excluded.length})</div>
-      <span style="font-size:12px;color:var(--text2)">${fmt(total)}</span>
-      <span style="font-size:11px;color:var(--text3)" id="arr-${gid}">▼</span>
-    </div>
-    <div style="font-size:11px;color:var(--text3);margin:6px 0 8px">No cuentan en ingresos/gastos porque son pagos a tarjeta propia, transferencias internas o balances iniciales. Si alguna no debería estar excluida, usa "Recuperar" para agregarla como transacción real.</div>
-    <div id="${gid}" style="display:none;max-height:320px;overflow-y:auto">
-      ${excluded.map(item=>`
-        <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0;opacity:.75">
-          <div class="item-row-main">
-            <div class="item-info">
-              <span class="item-name" title="${item.name.replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${item.name}</span>
-              <span class="item-sub">${item.reason||'Excluido'} · ${item.date||''}${item.ref?' · Ref: '+item.ref:''}</span>
-            </div>
-            <span class="item-amount">${fmt(item.amount)}</span>
-            <button class="btn btn-sm" onclick="recoverExcludedItem(${item.id})" title="Agregar como transacción real">Recuperar</button>
-            <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteExcludedItem(${item.id})" title="Eliminar definitivamente">&#10005;</button>
-          </div>
-        </div>`).join('')}
-    </div>
   </div>`;
 }
 function recoverExcludedItem(id){
@@ -1761,9 +1756,8 @@ function deleteImportedAccount(acc){
     'Se eliminarán todas las transacciones importadas de <strong>'+acc+'</strong> de <strong>'+MONTHS[activeMonth]+' '+activeYear+'</strong>.<br><br>Podrás volver a cargar el archivo después.',
     ()=>{
       const data=getCurrentData();
-      const before=data.items.length;
       data.items=data.items.filter(i=>!(i.imported && i.account===acc));
-      const removed=before-data.items.length;
+      data.excludedItems=(data.excludedItems||[]).filter(i=>i.account!==acc);
       setCurrentData(data);
       saveToDrive();
       markSaved();
