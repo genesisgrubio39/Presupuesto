@@ -451,30 +451,41 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
-    <div class="card-title">1. Configurar cuenta</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-      <div class="form-group">
-        <label>Titular</label>
-        <select id="imp-titular">
-          <option value="Genesis">Genesis</option>
-          <option value="Eddymar">Eddymar</option>
-        </select>
+    <div class="card-title">1. Cuenta del estado de cuenta</div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+      <div class="form-group" style="flex:1;min-width:280px;margin-bottom:0">
+        <label>Cuenta</label>
+        <select id="imp-account" onchange="onAccountChange()"></select>
       </div>
-      <div class="form-group">
-        <label>Banco</label>
-        <input id="imp-banco" placeholder="ej. Bank of America" value="Bank of America">
+      <button class="btn btn-sm" id="btn-del-account" onclick="deleteSelectedAccount()" title="Eliminar esta cuenta guardada">&#128465; Eliminar cuenta</button>
+    </div>
+    <div id="imp-new-account" style="display:none;border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+        <div class="form-group">
+          <label>Titular</label>
+          <select id="imp-titular">
+            <option value="Genesis">Genesis</option>
+            <option value="Eddymar">Eddymar</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Banco</label>
+          <input id="imp-banco" placeholder="ej. Bank of America" value="Bank of America">
+        </div>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="imp-tipo">
+            <option value="debito">Débito</option>
+            <option value="credito">Crédito</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Últimos 4 dígitos</label>
+          <input id="imp-id" placeholder="ej. 4833" maxlength="4">
+        </div>
       </div>
-      <div class="form-group">
-        <label>Tipo</label>
-        <select id="imp-tipo">
-          <option value="debito">Débito</option>
-          <option value="credito">Crédito</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Identificador (últimos 4 dígitos)</label>
-        <input id="imp-id" placeholder="ej. 4833" maxlength="4">
-      </div>
+      <button class="btn btn-success btn-sm" onclick="saveNewAccount()">&#10003; Guardar cuenta</button>
+      <span style="font-size:11px;color:var(--text3);margin-left:8px">Queda guardada en tu Drive para las próximas importaciones.</span>
     </div>
     <button class="btn btn-primary" onclick="document.getElementById('csvFile').click()">&#8659; Cargar CSV del estado de cuenta</button>
     <span id="imp-filename" style="font-size:12px;color:var(--text2);margin-left:10px"></span>
@@ -1184,6 +1195,81 @@ function goImport(){
   document.getElementById('view-monthly').classList.remove('active');
   document.getElementById('view-import').style.display='block';
   document.getElementById('imp-preview').innerHTML='';
+  renderAccountSelect();
+}
+// ── CUENTAS GUARDADAS ─────────────────────────────
+// Se guardan en appData.accounts y viajan en el mismo archivo de Drive.
+function getAccounts(){ return appData.accounts||[]; }
+function accountDisplay(a){
+  return `${a.titular} · ${a.banco} ${a.tipo==='credito'?'crédito':'débito'}${a.last4?' ••'+a.last4:''}`;
+}
+function renderAccountSelect(preselect){
+  const sel=document.getElementById('imp-account');
+  if(!sel) return;
+  const accs=getAccounts();
+  const prev = preselect!==undefined ? String(preselect) : sel.value;
+  sel.innerHTML = accs.map((a,i)=>`<option value="${i}">${accountDisplay(a)}</option>`).join('')
+    + `<option value="__new__">+ Nueva cuenta…</option>`;
+  if(prev==='__new__' || (prev!=='' && accs[prev])) sel.value=prev;
+  else sel.value = accs.length ? '0' : '__new__';
+  onAccountChange();
+}
+function onAccountChange(){
+  const sel=document.getElementById('imp-account');
+  const box=document.getElementById('imp-new-account');
+  const del=document.getElementById('btn-del-account');
+  if(!sel||!box) return;
+  const isNew = sel.value==='__new__';
+  box.style.display = isNew ? 'block' : 'none';
+  if(del) del.style.display = isNew ? 'none' : 'inline-flex';
+  if(!isNew){
+    const a=getAccounts()[sel.value];
+    if(a){
+      document.getElementById('imp-titular').value=a.titular;
+      document.getElementById('imp-banco').value=a.banco;
+      document.getElementById('imp-tipo').value=a.tipo;
+      document.getElementById('imp-id').value=a.last4||'';
+    }
+  }
+}
+function readAccountForm(){
+  return {
+    titular: document.getElementById('imp-titular').value,
+    banco: (document.getElementById('imp-banco').value||'').trim(),
+    tipo: document.getElementById('imp-tipo').value,
+    last4: (document.getElementById('imp-id').value||'').trim()
+  };
+}
+function saveNewAccount(){
+  const a=readAccountForm();
+  if(!a.banco){alert('Escribe el nombre del banco.');return null;}
+  const accs=getAccounts();
+  const dup=accs.findIndex(x=>x.titular===a.titular&&x.banco===a.banco&&x.tipo===a.tipo&&(x.last4||'')===(a.last4||''));
+  let idx;
+  if(dup>=0){ idx=dup; }
+  else { accs.push(a); appData.accounts=accs; idx=accs.length-1; saveToDrive(); }
+  renderAccountSelect(idx);
+  return getAccounts()[idx];
+}
+function deleteSelectedAccount(){
+  const sel=document.getElementById('imp-account');
+  if(!sel||sel.value==='__new__') return;
+  const accs=getAccounts();
+  const i=Number(sel.value);
+  const a=accs[i];
+  if(!a) return;
+  showModal('Eliminar cuenta guardada',
+    'Se quitará <strong>'+accountDisplay(a)+'</strong> de la lista de cuentas.<br><br>No borra ninguna transacción ya importada.',
+    ()=>{ accs.splice(i,1); appData.accounts=accs; saveToDrive(); renderAccountSelect(); });
+}
+// Cuenta a usar para esta importación. Si está en "Nueva cuenta…", la guarda primero.
+function resolveImportAccount(){
+  const sel=document.getElementById('imp-account');
+  if(sel && sel.value!=='__new__'){
+    const a=getAccounts()[sel.value];
+    if(a) return a;
+  }
+  return saveNewAccount();
 }
 function goAnnualFromImport(){
   document.getElementById('view-import').style.display='none';
@@ -1442,6 +1528,9 @@ let currentImportMeta = {};
 function handleCSV(e){
   const file=e.target.files[0];
   if(!file) return;
+  const acc=resolveImportAccount();
+  if(!acc){ e.target.value=''; return; }
+  currentImportMeta={titular:acc.titular, banco:acc.banco, tipo:acc.tipo, id:acc.last4||''};
   document.getElementById('imp-filename').textContent=file.name;
   const reader=new FileReader();
   reader.onload=ev=>{
@@ -1451,12 +1540,6 @@ function handleCSV(e){
       document.getElementById('imp-preview').innerHTML='<div class="alert alert-danger">No se pudo leer el archivo. Verifica que sea el CSV de BofA.</div>';
       return;
     }
-    currentImportMeta={
-      titular: document.getElementById('imp-titular').value,
-      banco: document.getElementById('imp-banco').value,
-      tipo: document.getElementById('imp-tipo').value,
-      id: document.getElementById('imp-id').value
-    };
     const grouped=groupByMonth(rows);
     pendingTxByMonth=grouped;
     renderImportPreview(grouped);
@@ -1653,17 +1736,24 @@ function confirmImportMonth(key, year, month){
   const existing=getMonth(year,month)||emptyMonth();
   const existingItems=existing.items||[];
   if(!existing.excludedItems) existing.excludedItems=[];
-  // Dedupe against ALL months (not just target month) so re-imports/overlapping statements don't duplicate
-  const allExisting=getAllItemsAcrossMonths();
+  // Dedupe contra TODOS los meses (no solo el mes destino) para que reimportar
+  // o cargar estados de cuenta solapados no duplique nada.
+  // El universo de comparación son las cargadas Y las excluidas juntas: una
+  // misma transacción del banco no puede existir a la vez como cargada (suma al
+  // balance) y como excluida (no suma). Comparar cada lista solo contra su
+  // propio grupo permitía justo esa doble representación al reimportar un mes
+  // cuyas reglas cambiaron.
+  const pool=[...getAllItemsAcrossMonths(),...getAllExcludedAcrossMonths()];
   let dupes=0;
   const uniqueItems=items.filter(item=>{
-    if(isDuplicateGlobal(item,allExisting)){dupes++;return false;}
+    if(isDuplicateGlobal(item,pool)){dupes++;return false;}
+    pool.push(item);
     return true;
   });
-  const allExistingExcluded=getAllExcludedAcrossMonths();
   let dupExcluded=0;
   const uniqueExcluded=excludedToStore.filter(item=>{
-    if(isDuplicateGlobal(item,allExistingExcluded)){dupExcluded++;return false;}
+    if(isDuplicateGlobal(item,pool)){dupExcluded++;return false;}
+    pool.push(item);
     return true;
   });
   existing.items=[...existingItems,...uniqueItems];
