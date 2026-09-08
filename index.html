@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v5</title>
+<title>Presupuesto v6</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -124,6 +124,7 @@ a,button,input,select{font-family:inherit}
 .badge-rec{background:var(--green-bg);color:var(--green-text)}
 .badge-fix{background:var(--blue-bg);color:var(--blue-text)}
 .badge-var{background:var(--bg3);color:var(--text2)}
+.badge-exc{background:var(--amber-bg);color:var(--amber-text)}
 .list-total{text-align:right;font-size:13px;font-weight:500;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
 /* EDIT PANEL */
 .edit-panel{display:none;padding:10px;background:var(--bg2);border-top:1px solid var(--border)}
@@ -183,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v5 · 2026-09-08</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v6 · 2026-09-08</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -257,6 +258,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
       <span class="save-status" id="saveStatus">Sin cambios pendientes</span>
       <span class="drive-status" id="drive-status-monthly">—</span>
       <button class="btn btn-success btn-sm" onclick="saveData()">&#10003; Guardar</button>
+      <button class="btn btn-sm" onclick="detectRecurring()" title="Marca como fijos los gastos que se repiten cada mes con monto estable">&#9881; Detectar fijos</button>
       <button class="btn btn-sm" onclick="exportCSV()">&#8595; CSV</button>
       <button class="btn btn-danger btn-sm" onclick="confirmClearMonth()">&#128465; Borrar mes</button>
     </div>
@@ -348,6 +350,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
                   <option value="Bills – Internet">Internet</option>
                   <option value="Bills – Seguro médico">Seguro médico</option>
                   <option value="Bills – Seguro auto">Seguro auto</option>
+                  <option value="Bills – Intereses">Intereses de tarjeta</option>
                 </optgroup>
                 <optgroup label="Suscripciones">
                   <option value="Suscripciones – Streaming">Streaming</option>
@@ -426,6 +429,16 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     </div>
   </div>
 </div>
+<!-- MODAL DETALLE DE CATEGORÍA -->
+<div class="modal-overlay" id="detail-overlay">
+  <div class="modal" style="max-width:780px">
+    <div class="modal-title" id="detail-title">Detalle</div>
+    <div id="detail-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="document.getElementById('detail-overlay').classList.remove('open')">Cerrar</button>
+    </div>
+  </div>
+</div>
 <!-- MODAL REGLAS APRENDIDAS -->
 <div class="modal-overlay" id="rules-overlay">
   <div class="modal" style="max-width:640px">
@@ -448,7 +461,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v5 · 2026-09-08</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v6 · 2026-09-08</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -613,6 +626,42 @@ function getAllExcludedAcrossMonths(){
     }
   });
   return all;
+}
+// ── COBERTURA POR MES ─────────────────────────────
+// Un mes con datos solo hasta el día 14 no es comparable con uno completo:
+// sin este aviso, un mes parcial parece simplemente un mes barato.
+function parseTxDate(s){
+  const p=String(s||'').split('/');
+  if(p.length<3) return null;
+  const m=parseInt(p[0],10), d=parseInt(p[1],10), y=parseInt(p[2],10);
+  if(!m||!d||!y) return null;
+  const dt=new Date(y,m-1,d);
+  return isNaN(dt.getTime())?null:dt;
+}
+function monthCoverage(y,m){
+  const d=getMonth(y,m);
+  const all=[...((d&&d.items)||[]),...((d&&d.excludedItems)||[])];
+  const accounts=[...new Set(all.map(i=>i.account).filter(Boolean))];
+  const dates=all.map(i=>parseTxDate(i.date)).filter(Boolean).sort((a,b)=>a-b);
+  if(!dates.length) return {empty:true,accounts,total:all.length,partial:false};
+  const first=dates[0], last=dates[dates.length-1];
+  const lastDay=new Date(y,m+1,0).getDate();
+  const today=new Date();
+  const isCurrent=(y===today.getFullYear()&&m===today.getMonth());
+  const expectedLast=isCurrent?today.getDate():lastDay;
+  const missingTail=expectedLast-last.getDate();
+  const missingHead=first.getDate()-1;
+  // 7 días: unos pocos días sin movimientos al cierre son normales; una semana
+  // entera sin un solo movimiento en ninguna cuenta indica datos faltantes.
+  return {empty:false,first,last,lastDay,accounts,total:all.length,isCurrent,
+          missingTail,missingHead,partial:(missingTail>=7||missingHead>=7)};
+}
+function fmtDayMonth(dt){return String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0');}
+function median(arr){
+  const a=arr.slice().sort((x,y)=>x-y);
+  if(!a.length) return 0;
+  const mid=Math.floor(a.length/2);
+  return a.length%2?a[mid]:(a[mid-1]+a[mid])/2;
 }
 // ── SAVE STATUS ───────────────────────────────────
 function markUnsaved(){
@@ -995,10 +1044,11 @@ function renderAnnual(){
     const isCurrent=y===today.getFullYear()&&m===today.getMonth();
     const dotClass=!hasData?'dot-empty':bal>=0?'dot-pos':'dot-neg';
     const balColor=!hasData?'var(--text3)':bal>=0?'var(--green)':'var(--red)';
+    const cov=hasData?monthCoverage(y,m):null;
     return `<div class="month-card${!hasData?' empty':''}${isCurrent?' current-month':''}" onclick="goMonthly(${y},${m})">
       <div class="month-dot ${dotClass}"></div>
-      <div class="month-name">${name}</div>
-      ${hasData?`<div class="month-stat"><span>Ingresos</span><span>${fmt(inc)}</span></div><div class="month-stat"><span>Gastos</span><span>${fmt(exp)}</span></div><div class="month-bal" style="color:${balColor}">${bal>=0?'+':''}${fmt(bal)}</div>`:`<div style="font-size:11px;color:var(--text3);margin-top:4px">Sin datos</div>`}
+      <div class="month-name">${name}${cov&&cov.partial?' <span style="font-size:9px;font-weight:500;color:var(--amber-text);background:var(--amber-bg);border-radius:99px;padding:1px 6px;vertical-align:middle" title="Datos incompletos: faltan '+cov.missingTail+' días">parcial</span>':''}</div>
+      ${hasData?`<div class="month-stat"><span>Ingresos</span><span>${fmt(inc)}</span></div><div class="month-stat"><span>Gastos</span><span>${fmt(exp)}</span></div><div class="month-bal" style="color:${balColor}">${bal>=0?'+':''}${fmt(bal)}</div>${cov&&!cov.empty?`<div style="font-size:10px;color:var(--text3);margin-top:3px">${fmtDayMonth(cov.first)}–${fmtDayMonth(cov.last)} · ${cov.accounts.length} cta${cov.accounts.length===1?'':'s'}</div>`:''}`:`<div style="font-size:11px;color:var(--text3);margin-top:4px">Sin datos</div>`}
     </div>`;
   }).join('');
   renderAnnualBreakdowns(y);
@@ -1034,8 +1084,9 @@ function renderAnnualBreakdowns(y){
     const cats={};
     allExp.forEach(i=>{const p=i.cat.split(' – ')[0];cats[p]=(cats[p]||0)+i.amount;});
     const sorted=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
-    const labels=sorted.map(([c])=>c);
-    const values=sorted.map(([,v])=>v);
+    const donutData=sorted.filter(([,v])=>v>0);
+    const labels=donutData.map(([c])=>c);
+    const values=donutData.map(([,v])=>v);
     const colors=labels.map((_,i)=>CAT_COLORS[i%CAT_COLORS.length]);
     const ec=document.getElementById('annual-exp-chart');
     if(annualExpChart) annualExpChart.destroy();
@@ -1043,7 +1094,7 @@ function renderAnnualBreakdowns(y){
     expEl.innerHTML='<table class="cat-table"><thead><tr><th>Categoría</th><th>Total</th><th>%</th></tr></thead><tbody>'
       +sorted.map(([cat,amt],i)=>{
         const pct=totalExp>0?((amt/totalExp)*100):0;
-        return `<tr><td><span class="pct-bar" style="width:${Math.max(4,Math.round(pct*0.6))}px;background:${CAT_COLORS[i%CAT_COLORS.length]}"></span>${cat}</td><td>${fmt(amt)}</td><td>${pct.toFixed(1)}%</td></tr>`;
+        return `<tr class="cat-expand" title="Ver las transacciones de esta categoría" onclick="showCatDetail('expense','${String(cat).replace(/'/g,"\\'")}',${y})"><td><span class="pct-bar" style="width:${Math.max(4,Math.round(pct*0.6))}px;background:${CAT_COLORS[i%CAT_COLORS.length]}"></span>${cat}</td><td>${fmt(amt)}</td><td>${pct.toFixed(1)}%</td></tr>`;
       }).join('')
       +`<tr style="font-weight:600;border-top:1px solid var(--border)"><td>Total</td><td>${fmt(totalExp)}</td><td>100%</td></tr>`
       +'</tbody></table>';
@@ -1058,8 +1109,9 @@ function renderAnnualBreakdowns(y){
     const srcs={};
     allInc.forEach(i=>{srcs[i.cat]=(srcs[i.cat]||0)+i.amount;});
     const sorted=Object.entries(srcs).sort((a,b)=>b[1]-a[1]);
-    const labels=sorted.map(([s])=>s);
-    const values=sorted.map(([,v])=>v);
+    const donutData=sorted.filter(([,v])=>v>0);
+    const labels=donutData.map(([s])=>s);
+    const values=donutData.map(([,v])=>v);
     const colors=labels.map((_,i)=>incColors[i%incColors.length]);
     const ic=document.getElementById('annual-inc-chart');
     if(annualIncChart) annualIncChart.destroy();
@@ -1067,11 +1119,100 @@ function renderAnnualBreakdowns(y){
     incEl.innerHTML='<table class="cat-table"><thead><tr><th>Fuente</th><th>Total</th><th>%</th></tr></thead><tbody>'
       +sorted.map(([src,amt],i)=>{
         const pct=totalInc>0?((amt/totalInc)*100):0;
-        return `<tr><td><span class="pct-bar" style="width:${Math.max(4,Math.round(pct*0.6))}px;background:${incColors[i%incColors.length]}"></span>${src}</td><td>${fmt(amt)}</td><td>${pct.toFixed(1)}%</td></tr>`;
+        return `<tr class="cat-expand" title="Ver las transacciones de esta fuente" onclick="showCatDetail('income','${String(src).replace(/'/g,"\\'")}',${y})"><td><span class="pct-bar" style="width:${Math.max(4,Math.round(pct*0.6))}px;background:${incColors[i%incColors.length]}"></span>${src}</td><td>${fmt(amt)}</td><td>${pct.toFixed(1)}%</td></tr>`;
       }).join('')
       +`<tr style="font-weight:600;border-top:1px solid var(--border)"><td>Total</td><td>${fmt(totalInc)}</td><td>100%</td></tr>`
       +'</tbody></table>';
   }
+}
+// ── FIJOS RECURRENTES Y GASTO EXCEPCIONAL ─────────
+// Las transacciones importadas entran todas como variables, así que el KPI de
+// fijos quedaba en $0 y no había forma de saber cuál es el piso mensual.
+// Criterio: misma descripción normalizada en 3+ meses distintos y cerca de una
+// vez por mes. Lo que define un gasto fijo es que llegue todos los meses, no
+// que el monto sea idéntico — la luz varía fuerte por estación y sigue siendo
+// un compromiso. La frecuencia es la que separa la hipoteca o la luz (1 vez al
+// mes) del supermercado o la gasolina (varias veces al mes). La banda de ±60%
+// solo descarta casos absurdos.
+function detectRecurring(){
+  const groups={};
+  Object.keys(appData).forEach(k=>{
+    if(k.indexOf('budget_')!==0) return;
+    const ym=k.substring(7);
+    ((appData[k]&&appData[k].items)||[]).forEach(it=>{
+      if(it.type!=='expense') return;
+      const key=normRuleKey(it.name).substring(0,32);
+      if(key.length<10) return;
+      (groups[key]=groups[key]||[]).push({ym,it});
+    });
+  });
+  let marked=0, cleared=0, grupos=0;
+  Object.values(groups).forEach(list=>{
+    const months=new Set(list.map(x=>x.ym));
+    const amounts=list.map(x=>Math.abs(x.it.amount));
+    const med=median(amounts);
+    const stable = med>0 && amounts.every(a=>Math.abs(a-med)/med<=0.60);
+    const isFixed = months.size>=3 && list.length<=months.size*1.5 && stable;
+    if(isFixed) grupos++;
+    list.forEach(x=>{
+      if(isFixed){
+        if(!x.it.fixed) marked++;
+        x.it.fixed=true; x.it.recurring=true; x.it.autoFixed=true;
+      } else if(x.it.autoFixed){ // solo revierte lo que marcó la detección, no lo tuyo
+        x.it.fixed=false; x.it.recurring=false; delete x.it.autoFixed; cleared++;
+      }
+    });
+  });
+  saveToDrive(); renderAnnual(); renderMonthly();
+  alert(grupos+' gastos recurrentes identificados · '+marked+' transacciones marcadas como fijas'
+    +(cleared?' · '+cleared+' desmarcadas':'')
+    +'.\n\nSolo se tocan las que detecta la regla automática; lo que marques a mano se respeta.');
+}
+function toggleExtraordinary(id){
+  const data=getCurrentData();
+  const it=(data.items||[]).find(i=>i.id==id);
+  if(!it) return;
+  it.extraordinary=!it.extraordinary;
+  setCurrentData(data);
+  markUnsaved(); saveToDrive(); renderMonthly(); renderAnnual();
+}
+// ── DETALLE DE CATEGORÍA / FUENTE ─────────────────
+// Abre las transacciones que componen un renglón del desglose anual. Sirve
+// para auditar cajas negras como "Otro ingreso" sin adivinar qué hay dentro.
+function showCatDetail(kind, catName, year){
+  const rows=[];
+  for(let m=0;m<12;m++){
+    const d=getMonth(year,m);
+    if(!d||!d.items) continue;
+    d.items.forEach(i=>{
+      if(i.type!==kind) return;
+      const key = kind==='expense' ? String(i.cat||'').split(' – ')[0] : i.cat;
+      if(key!==catName) return;
+      rows.push({...i,_m:m});
+    });
+  }
+  const total=rows.reduce((s,i)=>s+i.amount,0);
+  // resumen por subcategoría
+  const subs={};
+  rows.forEach(i=>{subs[i.cat]=(subs[i.cat]||0)+i.amount;});
+  const subList=Object.entries(subs).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('detail-title').innerHTML=
+    (kind==='expense'?'&#128179; Gastos':'&#128176; Ingresos')+' — '+catName+' · '+year;
+  document.getElementById('detail-body').innerHTML=
+    `<div style="font-size:13px;margin-bottom:10px">${rows.length} transacciones · Total <strong>${fmt(total)}</strong></div>`
+    + (subList.length>1?`<table class="cat-table" style="margin-bottom:12px"><thead><tr><th>Subcategoría</th><th style="text-align:right">Total</th></tr></thead><tbody>`
+        + subList.map(([c,v])=>`<tr><td>${c}</td><td style="text-align:right">${fmt(v)}</td></tr>`).join('')
+        + `</tbody></table>`:'')
+    + `<div style="max-height:380px;overflow-y:auto"><table class="cat-table">
+        <thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th style="text-align:right">Monto</th></tr></thead><tbody>`
+    + rows.sort((a,b)=>Math.abs(b.amount)-Math.abs(a.amount)).map(i=>`<tr>
+        <td style="white-space:nowrap;color:var(--text2)">${i.date||MONTHS[i._m]}</td>
+        <td title="${String(i.name).replace(/"/g,'&quot;')}" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i.name}</td>
+        <td style="font-size:11px;color:var(--text3);white-space:nowrap">${i.account||'—'}</td>
+        <td style="text-align:right;white-space:nowrap;color:${i.amount<0?'var(--green)':'var(--text)'}">${fmt(i.amount)}</td>
+      </tr>`).join('')
+    + `</tbody></table></div>`;
+  document.getElementById('detail-overlay').classList.add('open');
 }
 // ── RENDER MONTHLY ────────────────────────────────
 function renderMonthly(){
@@ -1085,15 +1226,25 @@ function renderMonthly(){
   const saveRate=totalInc>0?((balance/totalInc)*100):0;
   const fixedExp=expenses.filter(i=>i.fixed).reduce((s,i)=>s+i.amount,0);
   const varExp=totalExp-fixedExp;
+  // Gasto excepcional: viajes, compras únicas, imprevistos. Se excluye del
+  // balance normalizado para que el promedio no quede distorsionado por un
+  // evento que no se repite.
+  const extraExp=expenses.filter(i=>i.extraordinary).reduce((s,i)=>s+i.amount,0);
+  const balanceNorm=balance+extraExp;
+  const cargaFija=totalInc>0?(fixedExp/totalInc*100):0;
+  const cobertura=fixedExp>0?(totalInc/fixedExp):null;
   document.getElementById('total-income').textContent=fmt(totalInc);
   document.getElementById('total-expense').textContent=fmt(totalExp);
   document.getElementById('monthly-kpis').innerHTML=`
     <div class="kpi"><div class="kpi-label">Ingresos</div><div class="kpi-value pos">${fmt(totalInc)}</div></div>
     <div class="kpi"><div class="kpi-label">Gastos</div><div class="kpi-value neg">${fmt(totalExp)}</div></div>
     <div class="kpi"><div class="kpi-label">Balance</div><div class="kpi-value ${balance>=0?'pos':'neg'}">${fmt(balance)}</div></div>
-    <div class="kpi"><div class="kpi-label">Tasa ahorro</div><div class="kpi-value inf">${saveRate.toFixed(1)}%</div></div>
-    <div class="kpi"><div class="kpi-label">Fijos</div><div class="kpi-value">${fmt(fixedExp)}</div></div>
-    <div class="kpi"><div class="kpi-label">Variables</div><div class="kpi-value">${fmt(varExp)}</div></div>
+    <div class="kpi"><div class="kpi-label">Carga fija</div><div class="kpi-value ${cargaFija>60?'neg':cargaFija>40?'':'pos'}">${fixedExp>0?cargaFija.toFixed(0)+'%':'—'}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px">${fixedExp>0?'Fijos '+fmt(fixedExp)+' · Var '+fmt(varExp):'Sin fijos detectados'}</div></div>
+    <div class="kpi"><div class="kpi-label">Cobertura de fijos</div><div class="kpi-value ${cobertura===null?'':cobertura<1?'neg':cobertura<1.5?'':'pos'}">${cobertura===null?'—':cobertura.toFixed(2)+'x'}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px">${cobertura===null?'Usa "Detectar fijos"':'Ingreso ÷ gastos fijos'}</div></div>
+    <div class="kpi"><div class="kpi-label">Balance sin excepcionales</div><div class="kpi-value ${balanceNorm>=0?'pos':'neg'}">${fmt(balanceNorm)}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px">${extraExp>0?'Excluye '+fmt(extraExp)+' excepcional':'Sin gasto excepcional marcado'}</div></div>
   `;
   const pct=totalInc>0?Math.min((totalExp/totalInc)*100,100):0;
   const bar=document.getElementById('monthly-progress');
@@ -1102,6 +1253,20 @@ function renderMonthly(){
   document.getElementById('monthly-pct-label').textContent=pct.toFixed(1)+'% del ingreso';
   const ab=document.getElementById('monthly-alerts');
   ab.innerHTML='';
+  // Aviso de cobertura antes que cualquier lectura del balance
+  const cov=monthCoverage(activeYear,activeMonth);
+  if(!cov.empty){
+    const accTxt=cov.accounts.length?cov.accounts.length+' cuenta'+(cov.accounts.length>1?'s':'')+': '+cov.accounts.join(' · '):'sin cuenta identificada';
+    if(cov.partial){
+      const huecos=[];
+      if(cov.missingHead>=7) huecos.push('faltan '+cov.missingHead+' días al inicio');
+      if(cov.missingTail>=7) huecos.push('faltan '+cov.missingTail+' días'+(cov.isCurrent?' hasta hoy':' hasta el cierre'));
+      ab.innerHTML+='<div class="alert alert-warning" style="display:block">&#128197; <strong>Mes parcial</strong> — datos del '+fmtDayMonth(cov.first)+' al '+fmtDayMonth(cov.last)+', '+huecos.join(' y ')+
+        '.<div style="font-size:11px;margin-top:4px">Los totales de este mes no son comparables con un mes completo. '+accTxt+'.</div></div>';
+    } else {
+      ab.innerHTML+='<div class="alert alert-info" style="display:block">&#128197; Datos del '+fmtDayMonth(cov.first)+' al '+fmtDayMonth(cov.last)+' · '+accTxt+'</div>';
+    }
+  }
   if(balance<0) ab.innerHTML+='<div class="alert alert-danger">&#9888; Balance negativo — déficit de '+fmt(Math.abs(balance))+'.</div>';
   else if(saveRate<10&&totalInc>0) ab.innerHTML+='<div class="alert alert-warning">&#9888; Tasa de ahorro por debajo del 10%.</div>';
   else if(totalInc>0) ab.innerHTML+='<div class="alert alert-success">&#10003; Balance positivo — ahorro: '+fmt(balance)+' ('+saveRate.toFixed(1)+'%).</div>';
@@ -1170,8 +1335,9 @@ function renderGroupedList(elId, items, groupBy){
                 <span class="item-name">${item.name}</span>
                 <span class="item-sub">${item.cat}</span>
               </div>
-              ${item.recurring?'<span class="badge badge-rec">Rec</span>':item.fixed?'<span class="badge badge-fix">Fijo</span>':'<span class="badge badge-var">Var</span>'}
+              ${item.extraordinary?'<span class="badge badge-exc" title="Gasto excepcional: no cuenta en el balance normalizado">Exc</span>':item.recurring?'<span class="badge badge-rec">Rec</span>':item.fixed?'<span class="badge badge-fix">Fijo</span>':'<span class="badge badge-var">Var</span>'}
               <span class="item-amount">${fmt(item.amount)}</span>
+              ${item.type==='expense'?`<button class="btn btn-icon btn-sm" style="color:${item.extraordinary?'var(--amber)':'var(--text3)'}" onclick="toggleExtraordinary(${item.id})" title="${item.extraordinary?'Quitar marca de excepcional':'Marcar como gasto excepcional (viaje, imprevisto)'}">&#9873;</button>`:''}
               <button class="btn btn-icon btn-sm" onclick="toggleEdit(${item.id})" title="Editar">&#9998;</button>
               <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteItem(${item.id})" title="Eliminar">&#10005;</button>
             </div>
@@ -1210,7 +1376,7 @@ function renderMonthlyDonuts(expenses, incomes, totalExp, totalInc){
   if(expenses.length&&ec){
     const cats={};
     expenses.forEach(i=>{const p=i.cat.split(' – ')[0];cats[p]=(cats[p]||0)+i.amount;});
-    const sorted=Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+    const sorted=Object.entries(cats).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
     monthlyExpDonut=new Chart(ec,{type:'doughnut',data:{
       labels:sorted.map(([c])=>c),
       datasets:[{data:sorted.map(([,v])=>v),backgroundColor:sorted.map((_,i)=>CAT_COLORS[i%CAT_COLORS.length]),borderWidth:2,borderColor:'#fff'}]
@@ -1223,7 +1389,7 @@ function renderMonthlyDonuts(expenses, incomes, totalExp, totalInc){
   if(incomes.length&&ic){
     const srcs={};
     incomes.forEach(i=>{srcs[i.cat]=(srcs[i.cat]||0)+i.amount;});
-    const sorted=Object.entries(srcs).sort((a,b)=>b[1]-a[1]);
+    const sorted=Object.entries(srcs).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
     monthlyIncDonut=new Chart(ic,{type:'doughnut',data:{
       labels:sorted.map(([s])=>s),
       datasets:[{data:sorted.map(([,v])=>v),backgroundColor:sorted.map((_,i)=>incColors[i%incColors.length]),borderWidth:2,borderColor:'#fff'}]
@@ -1401,7 +1567,8 @@ const _origGoAnnual = typeof goAnnual === 'function' ? goAnnual : null;
 // ── CSV CATEGORIZATION RULES ──────────────────────
 const CAT_RULES = [
   // EXCLUSIONES
-  {match:/mobile banking payment to crd/i, exclude:true, excludeLabel:'Pago a tarjeta de credito'},
+  {match:/(mobile|online) banking payment to crd/i, exclude:true, excludeLabel:'Pago a tarjeta de credito'},
+  {match:/payment\s*-?\s*thank you|^payment received|ba electronic payment/i, exclude:true, excludeLabel:'Pago a tarjeta de credito'},
   {match:/beginning balance/i, exclude:true, excludeLabel:'Balance inicial'},
   {match:/online banking transfer (to|from) chk/i, exclude:true, excludeLabel:'Transferencia interna'},
   {match:/bkofamerica mobile.*deposit/i, exclude:true, excludeLabel:'Deposito movil interno'},
@@ -1430,6 +1597,7 @@ const CAT_RULES = [
   {match:/fbs fort bend/i, cat:'Bills – Agua', type:'expense'}, // Fort Bend: servicio de agua, no hipoteca
   {match:/tamarron|homeown.*assn|association.*dues|friends of tamarron/i, cat:'Bills – HOA', type:'expense'},
   // BILLS
+  {match:/interest charged|finance charge|cargo por inter/i, cat:'Bills – Intereses', type:'expense'},
   {match:/verizon/i, cat:'Bills – Teléfono', type:'expense'},
   {match:/at&t|t-mobile|sprint/i, cat:'Bills – Teléfono', type:'expense'},
   {match:/usr electricbill|usr.*electric/i, cat:'Bills – Electricidad', type:'expense'},
@@ -1510,7 +1678,18 @@ const CAT_RULES = [
   {match:/bkofamerica atm.*withdrwl/i, cat:'Sin especificar', type:'expense'},
   {match:/bkofamerica atm.*deposit/i, cat:'Otro ingreso', type:'income'},
 ];
-function categorizeTx(desc, amount, forceExclude, excludeLabel){
+// En un estado de tarjeta de crédito, un monto positivo NUNCA es ingreso del
+// hogar: o es un pago tuyo a la tarjeta (transferencia, se excluye) o es una
+// devolución de una compra. Antes caía en el último recurso del clasificador y
+// se registraba como "Otro ingreso", inflando el ingreso del mes.
+function categorizeTx(desc, amount, forceExclude, excludeLabel, isRefund){
+  const res=classifyTx(desc, amount, forceExclude, excludeLabel);
+  if(!isRefund || res.exclude) return res;
+  const incomeCats=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'];
+  if(res.type==='income'||incomeCats.includes(res.cat)) return {cat:'Reembolso', type:'expense', refund:true};
+  return {cat:res.cat, type:'expense', refund:true}; // devolución de esa misma categoría
+}
+function classifyTx(desc, amount, forceExclude, excludeLabel){
   if(forceExclude) return {exclude:true, excludeLabel: excludeLabel||'Excluido'};
   const d = desc.toLowerCase();
   // Check learned rules first (user corrections take priority)
@@ -1609,6 +1788,12 @@ function parseCSV(text){
       rows.push({date, desc, amount, ref, forceExclude:true, excludeLabel:'Pago desde cuenta corriente'});
       continue;
     }
+    // En el estado de la tarjeta, un monto positivo es un abono: pago o
+    // devolución. Se marca para que no pueda clasificarse como ingreso.
+    if(format==='credit' && amount>0){
+      rows.push({date, desc, amount, ref, isRefund:true});
+      continue;
+    }
     rows.push({date, desc, amount, ref});
   }
   return rows;
@@ -1668,7 +1853,7 @@ function renderImportPreview(grouped){
   wrap.innerHTML=keys.map(key=>{
     const {year,month,rows}=grouped[key];
     const txs=rows.map(row=>{
-      const cat=categorizeTx(row.desc, row.amount, row.forceExclude, row.excludeLabel);
+      const cat=categorizeTx(row.desc, row.amount, row.forceExclude, row.excludeLabel, row.isRefund);
       return {...row,...cat};
     });
     const allExisting=[...getAllItemsAcrossMonths(),...getAllExcludedAcrossMonths()];
@@ -1743,7 +1928,7 @@ function renderImportPreview(grouped){
 function getCatOptions(selected){
   const allCats=[
     {g:'Ingresos',opts:['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso']},
-    {g:'Bills',opts:['Bills – Mortgage','Bills – HOA','Bills – Renta','Bills – Agua','Bills – Gas','Bills – Electricidad','Bills – Teléfono','Bills – Internet','Bills – Seguro médico','Bills – Seguro auto']},
+    {g:'Bills',opts:['Bills – Mortgage','Bills – HOA','Bills – Renta','Bills – Agua','Bills – Gas','Bills – Electricidad','Bills – Teléfono','Bills – Internet','Bills – Seguro médico','Bills – Seguro auto','Bills – Intereses']},
     {g:'Suscripciones',opts:['Suscripciones – Streaming','Suscripciones – Música','Suscripciones – Software','Suscripciones – Gym','Suscripciones – Trading','Suscripciones – Otro']},
     {g:'Transporte',opts:['Transporte – Gasolina','Transporte – Auto Loan','Transporte – Mantenimiento','Transporte – Uber/Lyft','Transporte – Otro']},
     {g:'Comida',opts:['Comida – Supermercado','Comida – Restaurantes','Comida – Delivery']},
@@ -1753,7 +1938,7 @@ function getCatOptions(selected){
     {g:'Entretenimiento',opts:['Entretenimiento – Salidas','Entretenimiento – Viajes','Entretenimiento – Otro']},
     {g:'Ahorros',opts:['Ahorros – Transferencia','Ahorros – Inversión']},
     {g:'Transferencias',opts:['Zelle – Transferencia']},
-    {g:'Otro',opts:['Sin especificar','Excluir']},
+    {g:'Otro',opts:['Sin especificar','Reembolso','Excluir']},
   ];
   return allCats.map(g=>`<optgroup label="${g.g}">${g.opts.map(o=>`<option value="${o}"${o===selected?' selected':''}>${o}</option>`).join('')}</optgroup>`).join('');
 }
@@ -1809,7 +1994,7 @@ function updateExcludedCat(key, rowIdx, newCat, selectEl){
 }
 function confirmImportMonth(key, year, month){
   const {rows, overrides={}, recovered={}}=pendingTxByMonth[key];
-  const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc, r.amount, r.forceExclude, r.excludeLabel)}));
+  const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc, r.amount, r.forceExclude, r.excludeLabel, r.isRefund)}));
   const account=`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`;
   const items=[];
   const excludedToStore=[];
@@ -1851,7 +2036,7 @@ function confirmImportMonth(key, year, month){
     items.push({
       id:Date.now()+Math.random(),
       type,name:tx.desc,cat,
-      amount:Math.abs(tx.amount),
+      amount:tx.refund?-Math.abs(tx.amount):Math.abs(tx.amount),
       recurring:false,fixed:false,imported:true,
       ref:tx.ref||null,
       account,
@@ -2082,7 +2267,7 @@ function isDuplicateGlobal(newItem, existingItems){
     if(newRef && eRef) return eRef===newRef;
     return (
       (e.name||'').substring(0,30)===(newItem.name||newItem.desc||'').substring(0,30) &&
-      Math.abs((e.amount||0)-Math.abs(newItem.amount))<0.01 &&
+      Math.abs(Math.abs(e.amount||0)-Math.abs(newItem.amount||0))<0.01 &&
       e.date===newItem.date
     );
   });
