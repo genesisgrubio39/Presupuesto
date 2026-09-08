@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v8</title>
+<title>Presupuesto v9</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v8 · 2026-09-08</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v9 · 2026-09-08</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -483,7 +483,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v8 · 2026-09-08</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v9 · 2026-09-08</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -977,8 +977,7 @@ function applyRuleToExisting(keyword, newCat){
         moved++;
         return;
       }
-      it.cat=newCat;
-      it.type=incomeCats.includes(newCat)?'income':'expense';
+      it.cat=newCat; // la dirección no se toca: la fijó el banco al importar
       changed++; keep.push(it);
     });
     d.items=keep;
@@ -1128,8 +1127,7 @@ function saveEdit(id){
       moveItemToExcluded(id, newName);
       return;
     }
-    const newType=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
-    item.cat=newCat;item.type=newType;
+    item.cat=newCat;
     saveCategorizationRule(newName, newCat);
   }
   setCurrentData(data);markUnsaved();saveToDrive();renderMonthly();
@@ -1143,8 +1141,7 @@ function saveEditCat(id){
   if(!catEl||!catEl.value) return;
   const newCat=catEl.value;
   if(newCat==='Excluir'){ moveItemToExcluded(id, item.name); return; }
-  const newType=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
-  item.cat=newCat;item.type=newType;
+  item.cat=newCat; // la dirección la fijó el signo del banco; cambiar la etiqueta no la invierte
   setCurrentData(data);
   saveCategorizationRule(item.name, newCat);
   markUnsaved();saveToDrive();renderMonthly();
@@ -2308,6 +2305,11 @@ function confirmImportMonth(key, year, month){
     const override=overrides[i];
     const cat=override?override.cat:tx.cat;
     const type=override?override.type:tx.type;
+    // La dirección (ingreso/gasto) la define el SIGNO del banco, nunca la
+    // categoría. Una regla mal puesta convertía dinero que salió en dinero que
+    // entró: elegir "Trading – retiro" sobre una transferencia saliente movía
+    // el balance el doble del monto, a favor.
+    const dirType = tx.refund ? 'expense' : (parseFloat(tx.amount)>=0 ? 'income' : 'expense');
     const isExcluded = override ? (override.cat==='Excluir'||override.type==='exclude') : !!tx.exclude;
     if(isExcluded){
       const rec=recovered[i];
@@ -2336,7 +2338,7 @@ function confirmImportMonth(key, year, month){
     }
     items.push({
       id:Date.now()+Math.random(),
-      type,name:tx.desc,cat,
+      type:dirType,name:tx.desc,cat,
       amount:tx.refund?-Math.abs(tx.amount):Math.abs(tx.amount),
       recurring:false,fixed:false,imported:true,
       ref:tx.ref||null,
