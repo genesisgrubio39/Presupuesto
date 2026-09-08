@@ -183,6 +183,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v5 · 2026-09-08</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -193,6 +194,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
         <span class="drive-status" id="drive-status">Conectando...</span>
         <span class="user-badge" id="user-badge">—</span>
         <button class="btn btn-success btn-sm" onclick="saveAnnualPatrimony()">&#10003; Guardar patrimonio</button>
+        <button class="btn btn-sm" onclick="showRulesManager()" title="Ver y borrar las categorías que el sistema aprendió de tus correcciones">&#9881; Reglas aprendidas</button>
         <button class="btn btn-sm" onclick="exportJSON()">&#8595; Backup JSON</button>
         <button class="btn btn-sm" onclick="importJSON()">&#8593; Importar</button>
         <button class="btn btn-sm" onclick="signOut()">Salir</button>
@@ -420,6 +422,19 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="modal-actions">
       <button class="btn btn-sm" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-danger btn-sm" id="modal-confirm-btn">Confirmar</button>
+    </div>
+  </div>
+</div>
+<!-- MODAL REGLAS APRENDIDAS -->
+<div class="modal-overlay" id="rules-overlay">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title">&#9881; Reglas aprendidas de categorización</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px">
+      Cada vez que cambias la categoría de una transacción, el sistema guarda una regla para reconocerla en el futuro. Estas reglas tienen prioridad sobre las reglas automáticas: si alguna quedó mal, se seguirá aplicando hasta que la borres.
+    </div>
+    <div id="rules-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="document.getElementById('rules-overlay').classList.remove('open')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -693,6 +708,32 @@ function showModal(title,body,onConfirm){
   document.getElementById('modal-overlay').classList.add('open');
 }
 function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
+// ── REGLAS APRENDIDAS ─────────────────────────────
+function showRulesManager(){
+  renderRulesList();
+  document.getElementById('rules-overlay').classList.add('open');
+}
+function renderRulesList(){
+  const el=document.getElementById('rules-list');
+  const rules=appData.catRules||[];
+  if(!rules.length){el.innerHTML='<p style="font-size:13px;color:var(--text2)">No hay reglas aprendidas todavía.</p>';return;}
+  el.innerHTML=rules.map((r,i)=>`
+    <div class="item-row">
+      <div class="item-row-main">
+        <div class="item-info">
+          <span class="item-name" title="${String(r.keyword).replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${r.keyword}</span>
+          <span class="item-sub">→ ${r.cat}</span>
+        </div>
+        <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteCatRule(${i})" title="Borrar esta regla">&#10005;</button>
+      </div>
+    </div>`).join('');
+}
+function deleteCatRule(idx){
+  if(!appData.catRules) return;
+  appData.catRules.splice(idx,1);
+  saveToDrive();
+  renderRulesList();
+}
 // ── ADD / DELETE / EDIT ───────────────────────────
 function addItem(type){
   const data=getCurrentData();
@@ -1267,11 +1308,18 @@ function categorizeTx(desc, amount, forceExclude, excludeLabel){
   const d = desc.toLowerCase();
   // Check learned rules first (user corrections take priority)
   if(appData.catRules && appData.catRules.length){
-    const keyword20 = desc.substring(0,20).trim();
-    const learned = appData.catRules.find(r=>
-      keyword20.toLowerCase().startsWith(r.keyword.toLowerCase()) ||
-      r.keyword.toLowerCase().startsWith(keyword20.toLowerCase().substring(0,10))
-    );
+    // Emparejamiento por prefijo normalizado. La versión anterior también daba
+    // por válida una coincidencia con solo los primeros 10 caracteres, lo que
+    // hacía que UNA regla aprendida sobre cualquier "Zelle payment ..." se
+    // aplicara a TODAS las demás (a cualquier destinatario), pisando incluso
+    // las reglas fijas de exclusión de transferencias internas.
+    const normKey = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+    const key32 = normKey(desc).substring(0,32);
+    const learned = appData.catRules.find(r=>{
+      const rk = normKey(r.keyword);
+      if(rk.length < 12) return false; // claves demasiado genéricas no se aplican
+      return key32.startsWith(rk) || rk.startsWith(key32);
+    });
     if(learned){
       // 'Excluir' es un estado de exclusión, no una categoría — debe devolver
       // exclude:true (igual que las reglas automáticas de CAT_RULES) para que
@@ -1449,8 +1497,9 @@ function renderImportPreview(grouped){
         <table class="cat-table">
           <thead><tr><th></th><th>Fecha</th><th>Descripción</th><th>Categoría</th><th style="text-align:right">Monto</th></tr></thead>
           <tbody id="tbody-${key}">
-            ${active.map((tx,i)=>{
-              const isDup=dupFlags[txs.indexOf(tx)];
+            ${active.map((tx)=>{
+              const i=txs.indexOf(tx); // índice estable dentro de rows
+              const isDup=dupFlags[i];
               return `
               <tr style="${isDup?'background:var(--amber-bg)':''}">
                 <td>${isDup?'<span title="Posible duplicado — ya existe una transacción igual en otro mes/importación" style="font-size:11px;color:var(--amber-text)">&#9888; DUP</span>':''}</td>
@@ -1508,24 +1557,27 @@ function getCatOptions(selected){
   ];
   return allCats.map(g=>`<optgroup label="${g.g}">${g.opts.map(o=>`<option value="${o}"${o===selected?' selected':''}>${o}</option>`).join('')}</optgroup>`).join('');
 }
-function updateTxCat(key, idx, newCat, selectEl){
-  const rows=pendingTxByMonth[key].rows;
-  const txs=rows.map(r=>({...r,...categorizeTx(r.desc,r.amount,r.forceExclude,r.excludeLabel)})).filter(r=>!r.exclude);
-  if(txs[idx]){
-    if(!pendingTxByMonth[key].overrides) pendingTxByMonth[key].overrides={};
-    const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense';
-    pendingTxByMonth[key].overrides[idx]={cat:newCat, type};
-    // Update select style
-    selectEl.style.background=newCat==='Sin especificar'?'var(--amber-bg)':newCat==='Excluir'?'var(--red-bg)':'var(--green-bg)';
-    selectEl.style.color=newCat==='Sin especificar'?'var(--amber-text)':newCat==='Excluir'?'var(--red-text)':'var(--green-text)';
-    // Save rule immediately to Drive
-    saveCategorizationRule(txs[idx].desc, newCat);
-  }
+// rowIdx es el índice dentro de rows (estable). Antes se usaba el índice dentro
+// de la lista filtrada de activas, que se desplazaba en cuanto una fila previa
+// pasaba a excluida, aplicando el override a la transacción equivocada.
+function updateTxCat(key, rowIdx, newCat, selectEl){
+  const row=pendingTxByMonth[key].rows[rowIdx];
+  if(!row) return;
+  if(!pendingTxByMonth[key].overrides) pendingTxByMonth[key].overrides={};
+  const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense';
+  pendingTxByMonth[key].overrides[rowIdx]={cat:newCat, type};
+  // Update select style
+  selectEl.style.background=newCat==='Sin especificar'?'var(--amber-bg)':newCat==='Excluir'?'var(--red-bg)':'var(--green-bg)';
+  selectEl.style.color=newCat==='Sin especificar'?'var(--amber-text)':newCat==='Excluir'?'var(--red-text)':'var(--green-text)';
+  // Save rule immediately to Drive
+  saveCategorizationRule(row.desc, newCat);
 }
 function saveCategorizationRule(desc, cat){
   if(!desc||!cat) return;
   if(!appData.catRules) appData.catRules=[];
-  const keyword=desc.substring(0,20).trim();
+  // 32 caracteres normalizados: suficiente para distinguir destinatarios en
+  // descripciones que comparten prefijo ("Zelle payment to ...").
+  const keyword=String(desc).toLowerCase().replace(/\s+/g,' ').trim().substring(0,32);
   const existing=appData.catRules.find(r=>r.keyword===keyword);
   if(existing){
     existing.cat=cat;
@@ -1547,22 +1599,41 @@ function updateExcludedCat(key, date, desc, newCat, selectEl){
 function confirmImportMonth(key, year, month){
   const {rows, overrides={}, recovered=[]}=pendingTxByMonth[key];
   const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc, r.amount, r.forceExclude, r.excludeLabel)}));
-  const active=txs.filter(r=>!r.exclude);
-  const excludedTxs=txs.filter(r=>r.exclude);
+  const account=`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`;
+  const recoveredKeys=recovered.map(r=>(r.date||'')+'|'+(r.desc||'').substring(0,20));
   const items=[];
-  const skippedItems=[];
-  active.forEach((tx,i)=>{
+  const excludedToStore=[];
+  // Un solo recorrido con una única fuente de verdad: cada transacción termina
+  // o en items (cuenta en el balance) o en excludedToStore (no cuenta pero
+  // queda registrada y visible). Antes, las marcadas "Excluir" a mano en el
+  // desplegable se descartaban del balance pero no se guardaban en ningún
+  // lado: quedaban fuera de ambas listas y desaparecían por completo.
+  txs.forEach((tx,i)=>{
     const override=overrides[i];
     const cat=override?override.cat:tx.cat;
     const type=override?override.type:tx.type;
-    if(type==='exclude'||cat==='Excluir') return;
+    const isExcluded = override ? (override.cat==='Excluir'||override.type==='exclude') : !!tx.exclude;
+    const rkey=(tx.date||'')+'|'+(tx.desc||'').substring(0,20);
+    if(isExcluded){
+      if(recoveredKeys.includes(rkey)) return; // recuperada por el usuario; se agrega más abajo
+      excludedToStore.push({
+        id:Date.now()+Math.random(),
+        name:tx.desc,
+        reason: override ? 'Excluido manualmente' : (tx.excludeLabel||'Excluido'),
+        amount:Math.abs(tx.amount),
+        ref:tx.ref||null,
+        account,
+        date:tx.date
+      });
+      return;
+    }
     items.push({
       id:Date.now()+Math.random(),
       type,name:tx.desc,cat,
       amount:Math.abs(tx.amount),
       recurring:false,fixed:false,imported:true,
       ref:tx.ref||null,
-      account:`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`,
+      account,
       date:tx.date
     });
   });
@@ -1574,21 +1645,10 @@ function confirmImportMonth(key, year, month){
       amount:Math.abs(tx.amount),
       recurring:false,fixed:false,imported:true,
       ref:tx.ref||null,
-      account:`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`,
+      account,
       date:tx.date
     });
   });
-  // Excluded items that were NOT recovered — persist so they remain visible later
-  const recoveredKeys=recovered.map(r=>(r.date||'')+'|'+(r.desc||'').substring(0,20));
-  const excludedToStore=excludedTxs.filter(tx=>!recoveredKeys.includes((tx.date||'')+'|'+(tx.desc||'').substring(0,20))).map(tx=>({
-    id:Date.now()+Math.random(),
-    name:tx.desc,
-    reason:tx.excludeLabel||'Excluido',
-    amount:Math.abs(tx.amount),
-    ref:tx.ref||null,
-    account:`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`,
-    date:tx.date
-  }));
   const existing=getMonth(year,month)||emptyMonth();
   const existingItems=existing.items||[];
   if(!existing.excludedItems) existing.excludedItems=[];
