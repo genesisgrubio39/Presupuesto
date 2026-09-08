@@ -1628,7 +1628,9 @@ function renderImportPreview(grouped){
               <tr><td colspan="5" style="padding:8px 6px;font-size:11px;color:var(--text3);background:var(--bg2);border-top:2px solid var(--border)">
                 EXCLUIDAS DEL BALANCE — pagos a tarjeta, transferencias internas, balances iniciales. Cambia categoría para incluir.
               </td></tr>
-              ${softExcluded.map((tx,i)=>`
+              ${softExcluded.map((tx)=>{
+              const i=txs.indexOf(tx); // índice estable dentro de rows
+              return `
               <tr style="opacity:0.55;background:var(--bg2)">
                 <td></td>
                 <td style="white-space:nowrap;color:var(--text2)">${tx.date}</td>
@@ -1637,13 +1639,13 @@ function renderImportPreview(grouped){
                   <span style="font-size:10px;color:var(--text3);display:block">${tx.excludeLabel||''}</span>
                 </td>
                 <td>
-                  <select onchange="updateExcludedCat('${key}','${tx.date}','${tx.desc.replace(/'/g,"\\'")}',this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);color:var(--text3)">
-                    <option value="Excluir" selected>Transferencia interna</option>
+                  <select onchange="updateExcludedCat('${key}',${i},this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);color:var(--text3)">
+                    <option value="Excluir" selected>Mantener excluida</option>
                     ${getCatOptions('Excluir')}
                   </select>
                 </td>
                 <td style="text-align:right;color:var(--text3)">${fmt(Math.abs(tx.amount))}</td>
-              </tr>`).join('')}
+              </tr>`;}).join('')}
             `:''}
           </tbody>
         </table>
@@ -1697,21 +1699,31 @@ function saveCategorizationRule(desc, cat){
   }
   saveToDrive();
 }
-function updateExcludedCat(key, date, desc, newCat, selectEl){
-  if(newCat==='Excluir') return;
-  if(!pendingTxByMonth[key].recovered) pendingTxByMonth[key].recovered=[];
+// Rescata una transacción excluida asignándole una categoría real.
+// Se indexa por la posición estable de la fila. La versión anterior buscaba la
+// fila por fecha + primeros 20 caracteres de la descripción: con varias
+// transacciones del mismo destinatario el mismo día (ej. cuatro Zelle a la
+// misma persona el 01/20 por montos distintos) rescataba la fila equivocada.
+// Además acumulaba en una lista, así que cambiar el desplegable dos veces
+// importaba la transacción dos veces.
+function updateExcludedCat(key, rowIdx, newCat, selectEl){
+  if(!pendingTxByMonth[key].recovered) pendingTxByMonth[key].recovered={};
+  const tr=selectEl.closest('tr');
+  if(newCat==='Excluir'){ // volver a excluirla
+    delete pendingTxByMonth[key].recovered[rowIdx];
+    selectEl.style.background='var(--bg2)';selectEl.style.color='var(--text3)';
+    if(tr) tr.style.opacity='0.55';
+    return;
+  }
   const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
-  // Find the original row
-  const row=pendingTxByMonth[key].rows.find(r=>r.date===date&&r.desc.startsWith(desc.substring(0,20)));
-  if(row) pendingTxByMonth[key].recovered.push({...row,cat:newCat,type});
+  pendingTxByMonth[key].recovered[rowIdx]={cat:newCat, type};
   selectEl.style.background='var(--green-bg)';selectEl.style.color='var(--green-text)';
-  const td=selectEl.closest('tr');if(td) td.style.opacity='1';
+  if(tr) tr.style.opacity='1';
 }
 function confirmImportMonth(key, year, month){
-  const {rows, overrides={}, recovered=[]}=pendingTxByMonth[key];
+  const {rows, overrides={}, recovered={}}=pendingTxByMonth[key];
   const txs=rows.map((r,i)=>({...r,...categorizeTx(r.desc, r.amount, r.forceExclude, r.excludeLabel)}));
   const account=`${currentImportMeta.titular} · ${currentImportMeta.banco} ${currentImportMeta.id}`;
-  const recoveredKeys=recovered.map(r=>(r.date||'')+'|'+(r.desc||'').substring(0,20));
   const items=[];
   const excludedToStore=[];
   // Un solo recorrido con una única fuente de verdad: cada transacción termina
@@ -1724,9 +1736,20 @@ function confirmImportMonth(key, year, month){
     const cat=override?override.cat:tx.cat;
     const type=override?override.type:tx.type;
     const isExcluded = override ? (override.cat==='Excluir'||override.type==='exclude') : !!tx.exclude;
-    const rkey=(tx.date||'')+'|'+(tx.desc||'').substring(0,20);
     if(isExcluded){
-      if(recoveredKeys.includes(rkey)) return; // recuperada por el usuario; se agrega más abajo
+      const rec=recovered[i];
+      if(rec){ // la rescataste asignándole una categoría real: pasa a cargadas
+        items.push({
+          id:Date.now()+Math.random(),
+          type:rec.type,name:tx.desc,cat:rec.cat,
+          amount:Math.abs(tx.amount),
+          recurring:false,fixed:false,imported:true,
+          ref:tx.ref||null,
+          account,
+          date:tx.date
+        });
+        return;
+      }
       excludedToStore.push({
         id:Date.now()+Math.random(),
         name:tx.desc,
@@ -1741,18 +1764,6 @@ function confirmImportMonth(key, year, month){
     items.push({
       id:Date.now()+Math.random(),
       type,name:tx.desc,cat,
-      amount:Math.abs(tx.amount),
-      recurring:false,fixed:false,imported:true,
-      ref:tx.ref||null,
-      account,
-      date:tx.date
-    });
-  });
-  // Add recovered excluded items
-  recovered.forEach(tx=>{
-    items.push({
-      id:Date.now()+Math.random(),
-      type:tx.type,name:tx.desc,cat:tx.cat,
       amount:Math.abs(tx.amount),
       recurring:false,fixed:false,imported:true,
       ref:tx.ref||null,
