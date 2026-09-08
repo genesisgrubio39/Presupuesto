@@ -1671,8 +1671,19 @@ function confirmImportMonth(key, year, month){
   setMonth(year,month,existing);
   saveToDrive();
   const card=document.getElementById('imp-month-'+key);
-  const dupeMsg=(dupes+dupExcluded)>0?` (${dupes+dupExcluded} duplicados ignorados)`:'';
-  if(card) card.innerHTML=`<div class="alert alert-success">&#10003; ${uniqueItems.length} transacciones importadas a ${MONTHS[month]} ${year}${dupeMsg}.</div>`;
+  // Reporte explícito de lo que quedó guardado, para que un fallo silencioso
+  // sea visible en el momento de importar y no semanas después.
+  const exAuto=uniqueExcluded.filter(e=>e.reason!=='Excluido manualmente').length;
+  const exMan=uniqueExcluded.filter(e=>e.reason==='Excluido manualmente').length;
+  if(card) card.innerHTML=`<div class="alert alert-success" style="display:block">
+    &#10003; <strong>${MONTHS[month]} ${year}</strong> — guardado en tu Drive:
+    <div style="margin-top:6px;font-size:12px;line-height:1.7">
+      · <strong>${uniqueItems.length}</strong> transacciones cargadas (cuentan en el balance)<br>
+      · <strong>${uniqueExcluded.length}</strong> excluidas del balance — ${exAuto} automáticas + ${exMan} marcadas por ti<br>
+      ${(dupes+dupExcluded)>0?`· <strong>${dupes+dupExcluded}</strong> omitidas por ya existir (${dupes} cargadas + ${dupExcluded} excluidas)<br>`:''}
+      · total procesado: ${uniqueItems.length+uniqueExcluded.length+dupes+dupExcluded} de ${txs.length} filas del archivo
+    </div>
+  </div>`;
   renderMonthly();
   renderAnnual();
 }
