@@ -1294,11 +1294,11 @@ function categorizeTx(desc, amount, forceExclude, excludeLabel){
 }
 function parseCSV(text){
   const lines = text.split('\n').map(l=>l.trim()).filter(l=>l);
- 
+
   // Detect format by header
   let headerIdx = -1;
   let format = 'debit';
- 
+
   for(let i=0;i<lines.length;i++){
     if(/posted date.*reference.*payee/i.test(lines[i])){
       headerIdx=i; format='credit'; break;
@@ -1316,12 +1316,12 @@ function parseCSV(text){
   for(let i=headerIdx+1;i<lines.length;i++){
     const line = lines[i];
     if(!line.trim()) continue;
- 
+
     const cols = parseCSVLine(line);
     if(cols.length<2) continue;
- 
+
     let date='', desc='', amount=0, ref='';
- 
+
     if(format==='credit'){
       date = cols[0]?cols[0].trim():'';
       ref = cols[1]?cols[1].trim().replace(/"/g,''):'';
@@ -1340,7 +1340,7 @@ function parseCSV(text){
       const amtRaw = cols[2]?cols[2].replace(/,/g,'').replace(/"/g,'').trim():'';
       amount = parseFloat(amtRaw)||0;
     }
- 
+
     // Skip truly empty rows and header artifacts
     if(!desc) continue;
     if(/^date$|^posted date$|^description$/i.test(desc)) continue;
@@ -1348,7 +1348,7 @@ function parseCSV(text){
     if(/^,+$/.test(line)) continue;
     // Skip rows that look like summary lines (no date)
     if(!date || !/\d{2}\/\d{2}\/\d{4}/.test(date)) continue;
- 
+
     // Credit card: payment from checking = internal, mark for exclusion
     if(format==='credit' && /payment from chk/i.test(desc)){
       rows.push({date, desc, amount, ref, forceExclude:true, excludeLabel:'Pago desde cuenta corriente'});
@@ -1552,7 +1552,7 @@ function confirmImportMonth(key, year, month){
     if(type==='exclude'||cat==='Excluir') return;
     items.push({
       id:Date.now()+Math.random(),
-      type,name:tx.desc.substring(0,40),cat,
+      type,name:tx.desc,cat,
       amount:Math.abs(tx.amount),
       recurring:false,fixed:false,imported:true,
       ref:tx.ref||null,
@@ -1564,7 +1564,7 @@ function confirmImportMonth(key, year, month){
   recovered.forEach(tx=>{
     items.push({
       id:Date.now()+Math.random(),
-      type:tx.type,name:tx.desc.substring(0,40),cat:tx.cat,
+      type:tx.type,name:tx.desc,cat:tx.cat,
       amount:Math.abs(tx.amount),
       recurring:false,fixed:false,imported:true,
       ref:tx.ref||null,
@@ -1576,7 +1576,7 @@ function confirmImportMonth(key, year, month){
   const recoveredKeys=recovered.map(r=>(r.date||'')+'|'+(r.desc||'').substring(0,20));
   const excludedToStore=excludedTxs.filter(tx=>!recoveredKeys.includes((tx.date||'')+'|'+(tx.desc||'').substring(0,20))).map(tx=>({
     id:Date.now()+Math.random(),
-    name:tx.desc.substring(0,40),
+    name:tx.desc,
     reason:tx.excludeLabel||'Excluido',
     amount:Math.abs(tx.amount),
     ref:tx.ref||null,
@@ -1676,11 +1676,11 @@ function renderImportedFilesPanel(){
             <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0">
               <div class="item-row-main">
                 <div class="item-info">
-                  <span class="item-name">${item.name}</span>
+                  <span class="item-name" title="${item.name.replace(/"/g,'&quot;')}">${item.name}</span>
                   <span class="item-sub">${item.cat} · ${item.date||''}</span>
                 </div>
                 <span class="item-amount" style="color:${item.type==='income'?'var(--green)':'var(--red)'}">${fmt(item.amount)}</span>
-                <button class="btn btn-icon btn-sm" onclick="toggleEditImported(${item.id},'${gid}')" title="Cambiar categoría">&#9998;</button>
+                <button class="btn btn-icon btn-sm" onclick="toggleEditImported(${item.id})" title="Cambiar categoría">&#9998;</button>
                 <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteItem(${item.id})" title="Eliminar">&#10005;</button>
               </div>
               <div class="edit-panel" id="edit-imp-${item.id}">
@@ -1718,7 +1718,7 @@ function renderExcludedPanel(){
         <div class="item-row" style="border:none;border-top:1px solid var(--border);border-radius:0;margin:0;opacity:.75">
           <div class="item-row-main">
             <div class="item-info">
-              <span class="item-name">${item.name}</span>
+              <span class="item-name" title="${item.name.replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${item.name}</span>
               <span class="item-sub">${item.reason||'Excluido'} · ${item.date||''}${item.ref?' · Ref: '+item.ref:''}</span>
             </div>
             <span class="item-amount">${fmt(item.amount)}</span>
@@ -1772,16 +1772,13 @@ function deleteImportedAccount(acc){
     }
   );
 }
-function toggleEditImported(id, gid){
-  const data=getCurrentData();
-  const item=data.items.find(i=>i.id==id);
-  if(!item) return;
-  const newCat=document.getElementById('ecat-'+id).value;
-  const newType=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
-  item.cat=newCat;item.type=newType;
-  setCurrentData(data);
-  saveCategorizationRule(item.name, newCat);
-  markUnsaved();saveToDrive();renderMonthly();
+// Solo abre/cierra el panel de edición de categoría. Guardar lo hace el botón
+// "✓" dentro del panel (saveEditCat) — antes esta función guardaba de inmediato
+// con el valor por defecto del select y volvía a renderizar, lo que cerraba el
+// panel en el mismo clic sin dejar elegir nada.
+function toggleEditImported(id){
+  const panel=document.getElementById('edit-imp-'+id);
+  if(panel) panel.classList.toggle('open');
 }
 // ── DUPLICATE DETECTION ───────────────────────────
 // Compara una transacción entrante contra TODOS los items ya guardados (en cualquier mes).
@@ -1831,4 +1828,3 @@ function handleImport(e){
 </script>
 </body>
 </html>
- 
