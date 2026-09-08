@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v7</title>
+<title>Presupuesto v8</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v7 · 2026-09-08</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v8 · 2026-09-08</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -465,6 +465,10 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
       Cada vez que cambias la categoría de una transacción, el sistema guarda una regla para reconocerla en el futuro. Estas reglas tienen prioridad sobre las reglas automáticas: si alguna quedó mal, se seguirá aplicando hasta que la borres.
     </div>
     <div id="rules-list"></div>
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+      <button class="btn btn-sm" onclick="moveInvestmentTransfers()" title="Saca del balance las transferencias hacia/desde brokers ya importadas">&#8635; Mover transferencias de inversión</button>
+      <span style="font-size:11px;color:var(--text3);margin-left:8px">Robinhood, Fidelity, Schwab, Webull, AMP, TradeStation, Crypto.com.</span>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-sm" onclick="document.getElementById('rules-overlay').classList.remove('open')">Cerrar</button>
     </div>
@@ -479,7 +483,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v7 · 2026-09-08</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v8 · 2026-09-08</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -912,6 +916,8 @@ function renderRulesList(){
         <div class="item-info">
           <span class="item-name" title="${String(r.keyword).replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${r.keyword}</span>
         </div>
+        ${(function(){const b=ruleBreadth(r.keyword);const corta=normRuleKey(r.keyword).length<24;
+          return (b>=2&&corta)?`<span class="badge badge-exc" title="Clave corta que alcanza ${b} comercios distintos. Se creó con una versión anterior y probablemente está clasificando transacciones que no le corresponden — revísala o bórrala.">amplia · ${b}</span>`:'';})()}
         <select onchange="changeCatRule(${i},this.value)" style="max-width:230px;padding:4px 6px;border:1px solid var(--border2);border-radius:var(--r);font-size:12px;background:var(--bg);color:var(--text)">${getCatOptions(r.cat)}</select>
         <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteCatRule(${i})" title="Borrar esta regla">&#10005;</button>
       </div>
@@ -980,6 +986,65 @@ function applyRuleToExisting(keyword, newCat){
   saveToDrive();
   renderAnnual(); renderMonthly();
   alert(changed+' transacciones recategorizadas'+(moved?' y '+moved+' movidas a excluidas':'')+'.');
+}
+// Transferencias con plataformas de inversión / trading.
+// Acotado a propósito: solo toca transacciones que coinciden con estos
+// patrones explícitos. Una reclasificación general de todo el histórico es
+// peligrosa — las reglas aprendidas antiguas con claves cortas reclasifican
+// transacciones que no les corresponden e incluso invierten la dirección
+// (ingreso convertido en gasto).
+const INVEST_PAT=/robinhood\s+des:|webull financial\s+des:|amp global clear|schwab brokerage|tradestation\s+des:|des:fidelity|foris usa|crypto\.com|interactive brokers|apex clearing|ninjatrader|tradovate|coinbase|e\*trade/i;
+function moveInvestmentTransfers(){
+  const found=[];
+  Object.keys(appData).forEach(k=>{
+    if(k.indexOf('budget_')!==0) return;
+    ((appData[k]&&appData[k].items)||[]).forEach(it=>{ if(INVEST_PAT.test(it.name)) found.push({k,it}); });
+  });
+  const badRules=(appData.catRules||[]).filter(r=>INVEST_PAT.test(r.keyword)||/robinhood|webull|schwab|tradestation|foris|amp global|fidelity/i.test(r.keyword));
+  if(!found.length && !badRules.length){ alert('No hay transferencias con plataformas de inversión pendientes de mover.'); return; }
+  const sal=found.filter(f=>f.it.type==='expense').reduce((s,f)=>s+f.it.amount,0);
+  const ent=found.filter(f=>f.it.type==='income').reduce((s,f)=>s+f.it.amount,0);
+  showModal('Mover transferencias de inversión',
+    'Mandar dinero a un broker o traerlo de vuelta no es gasto ni ingreso: es convertir efectivo en activo y viceversa.'
+    +'<br><br><strong>'+found.length+'</strong> transacciones pasarían a excluidas del balance:'
+    +'<br>· salidas hoy contadas como gasto: <strong>'+fmt(sal)+'</strong>'
+    +'<br>· entradas hoy contadas como ingreso: <strong>'+fmt(ent)+'</strong>'
+    +(badRules.length?'<br><br>También se borrarán <strong>'+badRules.length+'</strong> reglas aprendidas que las clasificaban mal ('+[...new Set(badRules.map(r=>r.cat))].join(', ')+').':'')
+    +'<div style="max-height:150px;overflow-y:auto;font-size:11px;margin-top:10px;line-height:1.6;color:var(--text3)">'
+    +found.slice(0,20).map(f=>'· '+f.it.date+' '+fmt(f.it.amount)+' — '+f.it.name.substring(0,40)).join('<br>')
+    +(found.length>20?'<br>…y '+(found.length-20)+' más':'')+'</div>'
+    +'<div style="font-size:11px;margin-top:8px">Los saldos de esas cuentas van en <strong>Patrimonio</strong>, no en el balance del mes.</div>',
+    ()=>{
+      const porMes={};
+      found.forEach(({k,it})=>{
+        const d=appData[k];
+        if(!d.excludedItems) d.excludedItems=[];
+        d.excludedItems.push({
+          id:Date.now()+Math.random(), name:it.name,
+          reason: it.type==='income'?'Transferencia desde inversión':'Transferencia a inversión',
+          amount:it.amount, ref:it.ref||null, account:it.account||'', date:it.date||''
+        });
+        (porMes[k]=porMes[k]||new Set()).add(it);
+      });
+      Object.entries(porMes).forEach(([k,set])=>{ appData[k].items=appData[k].items.filter(x=>!set.has(x)); });
+      if(badRules.length) appData.catRules=(appData.catRules||[]).filter(r=>badRules.indexOf(r)<0);
+      saveToDrive(); renderRulesList(); renderAnnual(); renderMonthly();
+      alert(found.length+' transferencias movidas a excluidas y '+badRules.length+' reglas obsoletas borradas.');
+    });
+}
+// Cuántos comercios distintos alcanza una regla. Una regla que alcanza muchos
+// es demasiado amplia: se creó con una clave corta y está clasificando
+// transacciones que no le corresponden.
+function ruleBreadth(keyword){
+  const set=new Set();
+  Object.keys(appData).forEach(k=>{
+    if(k.indexOf('budget_')!==0) return;
+    const d=appData[k];
+    [...((d&&d.items)||[]),...((d&&d.excludedItems)||[])].forEach(it=>{
+      if(itemMatchesRule(it.name,keyword)) set.add(normRuleKey(it.name).substring(0,24));
+    });
+  });
+  return set.size;
 }
 function deleteCatRule(idx){
   if(!appData.catRules) return;
@@ -1799,6 +1864,18 @@ const CAT_RULES = [
   {match:/beginning balance/i, exclude:true, excludeLabel:'Balance inicial'},
   {match:/online banking transfer (to|from) chk/i, exclude:true, excludeLabel:'Transferencia interna'},
   {match:/bkofamerica mobile.*deposit/i, exclude:true, excludeLabel:'Deposito movil interno'},
+  // TRANSFERENCIAS CON PLATAFORMAS DE INVERSIÓN / TRADING
+  // Mandar dinero a un broker o traerlo de vuelta no es gasto ni ingreso: es
+  // convertir efectivo en activo y viceversa. Contarlo inflaba las dos
+  // columnas y distorsionaba el déficit. Los saldos van en Patrimonio.
+  {match:/robinhood\s+des:/i, exclude:true, excludeLabel:'Transferencia a inversión'},
+  {match:/webull financial\s+des:/i, exclude:true, excludeLabel:'Transferencia a inversión'},
+  {match:/amp global clear/i, exclude:true, excludeLabel:'Transferencia a inversión'},
+  {match:/schwab brokerage/i, exclude:true, excludeLabel:'Transferencia a inversión'},
+  {match:/tradestation\s+des:/i, exclude:true, excludeLabel:'Transferencia a inversión'},
+  {match:/des:fidelity/i, exclude:true, excludeLabel:'Transferencia desde inversión'},
+  {match:/foris usa|crypto\.com/i, exclude:true, excludeLabel:'Transferencia desde inversión'},
+  {match:/interactive brokers|apex clearing|ninjatrader|tradovate|coinbase|e\*trade/i, exclude:true, excludeLabel:'Transferencia con plataforma de inversión'},
   // ZELLE INTERNOS
   {match:/zelle payment (to|from) eddymar fuenmayor chacin/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
   {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
@@ -1810,9 +1887,6 @@ const CAT_RULES = [
   {match:/zelle payment to/i, cat:'Zelle – Transferencia', type:'expense'},
   // INGRESOS
   {match:/igloo products.*payroll|payroll.*igloo/i, cat:'Salario W-2', type:'income'},
-  {match:/robinhood/i, cat:'Trading – retiro', type:'income'},
-  {match:/webull/i, cat:'Trading – retiro', type:'income'},
-  {match:/tradestation.*payments/i, cat:'Trading – retiro', type:'income'},
   {match:/instacart|shipt/i, cat:'Freelance 1099', type:'income'},
   {match:/favor.*indn/i, cat:'Freelance 1099', type:'income'},
   {match:/direct dep|nomina/i, cat:'Salario W-2', type:'income'},
