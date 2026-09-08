@@ -761,11 +761,75 @@ function renderRulesList(){
       <div class="item-row-main">
         <div class="item-info">
           <span class="item-name" title="${String(r.keyword).replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${r.keyword}</span>
-          <span class="item-sub">→ ${r.cat}</span>
         </div>
+        <select onchange="changeCatRule(${i},this.value)" style="max-width:230px;padding:4px 6px;border:1px solid var(--border2);border-radius:var(--r);font-size:12px;background:var(--bg);color:var(--text)">${getCatOptions(r.cat)}</select>
         <button class="btn btn-icon btn-sm" style="color:var(--red)" onclick="deleteCatRule(${i})" title="Borrar esta regla">&#10005;</button>
       </div>
     </div>`).join('');
+}
+// Misma comparación que usa categorizeTx, para que editar una regla y
+// reaplicarla a lo ya importado coincida exactamente con lo que hará la
+// próxima importación.
+function normRuleKey(s){ return String(s||'').toLowerCase().replace(/\s+/g,' ').trim(); }
+function itemMatchesRule(name, keyword){
+  const rk=normRuleKey(keyword);
+  if(rk.length<12) return false; // claves demasiado genéricas no se aplican
+  const k=normRuleKey(name).substring(0,32);
+  return k.startsWith(rk) || rk.startsWith(k);
+}
+function countItemsMatchingRule(keyword){
+  let n=0;
+  Object.keys(appData).forEach(k=>{
+    if(k.indexOf('budget_')!==0) return;
+    ((appData[k]&&appData[k].items)||[]).forEach(it=>{ if(itemMatchesRule(it.name,keyword)) n++; });
+  });
+  return n;
+}
+function changeCatRule(idx, newCat){
+  const rules=appData.catRules||[];
+  const r=rules[idx];
+  if(!r||!newCat||newCat===r.cat) return;
+  const oldCat=r.cat;
+  r.cat=newCat;
+  saveToDrive();
+  renderRulesList();
+  const n=countItemsMatchingRule(r.keyword);
+  if(!n) return;
+  showModal('Aplicar a lo ya importado',
+    'La regla <strong>'+r.keyword+'</strong> ahora apunta a <strong>'+newCat+'</strong>, y así se clasificará en las próximas importaciones.'
+    +'<br><br>Hay <strong>'+n+'</strong> transacciones ya importadas que coinciden y siguen con la categoría anterior (<strong>'+oldCat+'</strong>).'
+    +'<br><br>¿Las actualizo también?',
+    ()=>applyRuleToExisting(r.keyword, newCat)
+  );
+}
+function applyRuleToExisting(keyword, newCat){
+  const incomeCats=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'];
+  let changed=0, moved=0;
+  Object.keys(appData).forEach(k=>{
+    if(k.indexOf('budget_')!==0) return;
+    const d=appData[k];
+    if(!d||!d.items) return;
+    if(!d.excludedItems) d.excludedItems=[];
+    const keep=[];
+    d.items.forEach(it=>{
+      if(!itemMatchesRule(it.name,keyword)){ keep.push(it); return; }
+      if(newCat==='Excluir'){ // sale del balance, no es una categoría
+        d.excludedItems.push({
+          id:Date.now()+Math.random(), name:it.name, reason:'Excluido manualmente',
+          amount:it.amount, ref:it.ref||null, account:it.account||'', date:it.date||''
+        });
+        moved++;
+        return;
+      }
+      it.cat=newCat;
+      it.type=incomeCats.includes(newCat)?'income':'expense';
+      changed++; keep.push(it);
+    });
+    d.items=keep;
+  });
+  saveToDrive();
+  renderAnnual(); renderMonthly();
+  alert(changed+' transacciones recategorizadas'+(moved?' y '+moved+' movidas a excluidas':'')+'.');
 }
 function deleteCatRule(idx){
   if(!appData.catRules) return;
@@ -1363,7 +1427,7 @@ const CAT_RULES = [
   {match:/one finance/i, cat:'Otro ingreso', type:'income'},
   // MORTGAGE / HOA
   {match:/pennymac|penny mac/i, cat:'Bills – Mortgage', type:'expense'},
-  {match:/fbs fort bend/i, cat:'Bills – Mortgage', type:'expense'},
+  {match:/fbs fort bend/i, cat:'Bills – Agua', type:'expense'}, // Fort Bend: servicio de agua, no hipoteca
   {match:/tamarron|homeown.*assn|association.*dues|friends of tamarron/i, cat:'Bills – HOA', type:'expense'},
   // BILLS
   {match:/verizon/i, cat:'Bills – Teléfono', type:'expense'},
@@ -1456,13 +1520,7 @@ function categorizeTx(desc, amount, forceExclude, excludeLabel){
     // hacía que UNA regla aprendida sobre cualquier "Zelle payment ..." se
     // aplicara a TODAS las demás (a cualquier destinatario), pisando incluso
     // las reglas fijas de exclusión de transferencias internas.
-    const normKey = s => String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
-    const key32 = normKey(desc).substring(0,32);
-    const learned = appData.catRules.find(r=>{
-      const rk = normKey(r.keyword);
-      if(rk.length < 12) return false; // claves demasiado genéricas no se aplican
-      return key32.startsWith(rk) || rk.startsWith(key32);
-    });
+    const learned = appData.catRules.find(r=>itemMatchesRule(desc, r.keyword));
     if(learned){
       // 'Excluir' es un estado de exclusión, no una categoría — debe devolver
       // exclude:true (igual que las reglas automáticas de CAT_RULES) para que
