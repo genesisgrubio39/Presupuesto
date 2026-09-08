@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v6</title>
+<title>Presupuesto v7</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v6 · 2026-09-08</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v7 · 2026-09-08</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -194,7 +194,6 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
       <div class="topbar-right">
         <span class="drive-status" id="drive-status">Conectando...</span>
         <span class="user-badge" id="user-badge">—</span>
-        <button class="btn btn-success btn-sm" onclick="saveAnnualPatrimony()">&#10003; Guardar patrimonio</button>
         <button class="btn btn-sm" onclick="showRulesManager()" title="Ver y borrar las categorías que el sistema aprendió de tus correcciones">&#9881; Reglas aprendidas</button>
         <button class="btn btn-sm" onclick="exportJSON()">&#8595; Backup JSON</button>
         <button class="btn btn-danger btn-sm" onclick="confirmResetAllMonths()" title="Borrar todas las transacciones de todos los meses y empezar limpio">&#128465; Empezar de cero</button>
@@ -222,6 +221,10 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     </div>
     <div class="card-title" style="margin-bottom:8px">Meses — haz clic para entrar</div>
     <div class="month-grid" id="month-grid"></div>
+    <div class="card" id="diag-card">
+      <div class="card-title">&#129658; Diagnóstico del año</div>
+      <div id="diag-body"></div>
+    </div>
     <!-- ANNUAL BREAKDOWNS -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem" id="annual-breakdowns-grid">
       <div class="card" style="margin-bottom:0">
@@ -237,14 +240,9 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     </div>
     <style>@media(max-width:640px){#annual-breakdowns-grid{grid-template-columns:1fr}}</style>
     <div class="card">
-      <div class="card-title">Patrimonio — snapshot anual <span style="font-size:11px;color:var(--text3);font-weight:400">(no afecta balance de flujo)</span></div>
-      <div class="pat-grid">
-        <div class="form-group"><label>Capital trading (cierre del año)</label><input type="number" id="pat-annual-trading" placeholder="0.00" min="0" step="0.01"></div>
-        <div class="form-group"><label>Cuentas de ahorro</label><input type="number" id="pat-annual-savings" placeholder="0.00" min="0" step="0.01"></div>
-        <div class="form-group"><label>Otros activos</label><input type="number" id="pat-annual-other" placeholder="0.00" min="0" step="0.01"></div>
-      </div>
-      <div style="font-size:13px;font-weight:500;margin-bottom:12px">Total: <span id="pat-annual-total">$0.00</span></div>
-      <div class="chart-wrap"><canvas id="pat-chart"></canvas></div>
+      <div class="card-title">Patrimonio neto y deuda — mes a mes <span style="font-size:11px;color:var(--text3);font-weight:400">(se registra desde cada mes)</span></div>
+      <div id="pat-annual-summary"></div>
+      <div class="chart-wrap-lg"><canvas id="pat-chart"></canvas></div>
     </div>
   </div>
   <!-- VIEW MONTHLY -->
@@ -284,6 +282,26 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
         </div>
         <!-- IMPORTED FILES (incluye cargadas y excluidas por cuenta) -->
         <div id="imported-files-panel"></div>
+        <!-- PATRIMONIO DEL MES -->
+        <div class="card">
+          <div class="card-title">&#127974; Patrimonio al cierre del mes <span style="font-size:11px;color:var(--text3);font-weight:400">(saldos, no movimientos — no afecta el balance)</span></div>
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Activos</div>
+          <div class="pat-grid">
+            <div class="form-group"><label>Capital trading</label><input type="number" id="pat-trading" placeholder="0.00" step="0.01"></div>
+            <div class="form-group"><label>Cuentas de ahorro</label><input type="number" id="pat-savings" placeholder="0.00" step="0.01"></div>
+            <div class="form-group"><label>Otros activos</label><input type="number" id="pat-other" placeholder="0.00" step="0.01"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 6px">Pasivos — lo que debes</div>
+          <div class="pat-grid" style="grid-template-columns:repeat(4,1fr)">
+            <div class="form-group"><label>Tarjetas de crédito</label><input type="number" id="pat-cards" placeholder="0.00" step="0.01"></div>
+            <div class="form-group"><label>Préstamo de auto</label><input type="number" id="pat-loans" placeholder="0.00" step="0.01"></div>
+            <div class="form-group"><label>Hipoteca</label><input type="number" id="pat-mortgage" placeholder="0.00" step="0.01"></div>
+            <div class="form-group"><label>Otras deudas</label><input type="number" id="pat-otherDebt" placeholder="0.00" step="0.01"></div>
+          </div>
+          <button class="btn btn-success btn-sm" onclick="savePatrimonioMensual()">&#10003; Guardar patrimonio del mes</button>
+          <div id="pat-net-summary" style="margin-top:12px"></div>
+          <div id="pat-reconcile"></div>
+        </div>
     <!-- DONUT CHARTS ROW -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem" id="monthly-donuts-grid">
       <div class="card" style="margin-bottom:0">
@@ -461,7 +479,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v6 · 2026-09-08</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v7 · 2026-09-08</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -674,13 +692,96 @@ function markSaved(){
   setTimeout(()=>{el.textContent='Sin cambios pendientes';el.className='save-status';},2000);
 }
 function saveData(){saveToDrive();markSaved();renderAnnual();}
-function saveAnnualPatrimony(){
-  const t=parseFloat(document.getElementById('pat-annual-trading').value)||0;
-  const s=parseFloat(document.getElementById('pat-annual-savings').value)||0;
-  const o=parseFloat(document.getElementById('pat-annual-other').value)||0;
-  setAnnualPat(activeYear,{trading:t,savings:s,other:o});
-  document.getElementById('pat-annual-total').textContent=fmt(t+s+o);
-  saveToDrive();
+// ── PATRIMONIO MENSUAL (activos y pasivos) ────────
+// El módulo anterior solo registraba activos y una vez al año. Para un hogar
+// cuyo déficit se financia con tarjeta, el dato que importa es la deuda y su
+// tendencia mes a mes; el patrimonio neto puede ser negativo y eso es
+// información, no un error.
+const PAT_FIELDS=['trading','savings','other','cards','loans','mortgage','otherDebt'];
+function patKey(y,m){return 'pat_'+y+'_'+String(m+1).padStart(2,'0')}
+function getPat(y,m){return appData[patKey(y,m)]||null}
+function setPat(y,m,d){appData[patKey(y,m)]=d}
+function patNet(p){
+  if(!p) return null;
+  const assets=(p.trading||0)+(p.savings||0)+(p.other||0);
+  const liab=(p.cards||0)+(p.loans||0)+(p.mortgage||0)+(p.otherDebt||0);
+  return {assets,liab,net:assets-liab};
+}
+function lastPatBefore(y,m){ // último snapshot anterior, para arrastrar saldos
+  for(let i=1;i<=24;i++){
+    let mm=m-i, yy=y;
+    while(mm<0){mm+=12;yy--;}
+    const p=getPat(yy,mm);
+    if(p) return {p,y:yy,m:mm};
+  }
+  return null;
+}
+function savePatrimonioMensual(){
+  const v=f=>{const el=document.getElementById('pat-'+f);return el?(parseFloat(el.value)||0):0;};
+  const d={}; PAT_FIELDS.forEach(f=>d[f]=v(f));
+  setPat(activeYear,activeMonth,d);
+  saveToDrive(); markSaved();
+  renderPatrimonioMensual(); renderAnnual();
+}
+function renderPatrimonioMensual(){
+  const p=getPat(activeYear,activeMonth);
+  PAT_FIELDS.forEach(f=>{
+    const el=document.getElementById('pat-'+f);
+    if(el) el.value=(p&&(p[f]||p[f]===0))?p[f]:'';
+  });
+  const sum=document.getElementById('pat-net-summary');
+  if(!sum) return;
+  if(!p){
+    const prev=lastPatBefore(activeYear,activeMonth);
+    sum.innerHTML='<div style="font-size:12px;color:var(--text2)">Sin registro para este mes.'
+      +(prev?' El último fue '+MONTHS[prev.m]+' '+prev.y+' con patrimonio neto de <strong>'+fmt(patNet(prev.p).net)+'</strong>.':'')
+      +'</div>';
+    document.getElementById('pat-reconcile').innerHTML='';
+    return;
+  }
+  const n=patNet(p);
+  const prev=lastPatBefore(activeYear,activeMonth);
+  const delta=prev?n.net-patNet(prev.p).net:null;
+  sum.innerHTML=`<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px">
+      <div>Activos: <strong style="color:var(--green)">${fmt(n.assets)}</strong></div>
+      <div>Pasivos: <strong style="color:var(--red)">${fmt(n.liab)}</strong></div>
+      <div>Patrimonio neto: <strong style="color:${n.net>=0?'var(--green)':'var(--red)'}">${fmt(n.net)}</strong></div>
+      ${delta!==null?`<div style="color:var(--text2)">vs ${MONTHS[prev.m].substring(0,3)} ${prev.y}: <strong style="color:${delta>=0?'var(--green)':'var(--red)'}">${delta>=0?'+':''}${fmt(delta)}</strong></div>`:''}
+    </div>`;
+  renderReconciliation();
+}
+// Reconciliación: el balance del mes debe explicar el cambio del patrimonio
+// neto. Si no lo explica, hay movimientos que no están capturados.
+function reconcileMonth(y,m){
+  const cur=getPat(y,m);
+  if(!cur) return null;
+  const prev=lastPatBefore(y,m);
+  if(!prev) return null;
+  const d=getMonth(y,m);
+  const items=(d&&d.items)||[];
+  const inc=items.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+  const exp=items.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+  const flujo=inc-exp;
+  const cambio=patNet(cur).net-patNet(prev.p).net;
+  const gapMonths=(y-prev.y)*12+(m-prev.m);
+  return {flujo,cambio,diff:cambio-flujo,prevLabel:MONTHS[prev.m]+' '+prev.y,gapMonths};
+}
+function renderReconciliation(){
+  const el=document.getElementById('pat-reconcile');
+  if(!el) return;
+  const r=reconcileMonth(activeYear,activeMonth);
+  if(!r){el.innerHTML='<div style="font-size:11px;color:var(--text3);margin-top:8px">Registra el patrimonio de dos meses seguidos para que la app pueda contrastar el balance contra el cambio real de saldos.</div>';return;}
+  const tol=Math.max(50,Math.abs(r.flujo)*0.02);
+  const ok=Math.abs(r.diff)<=tol;
+  const multi=r.gapMonths>1;
+  el.innerHTML=`<div class="alert ${ok?'alert-success':'alert-warning'}" style="display:block;margin-top:10px">
+    ${ok?'&#10003; <strong>Cuadra</strong>':'&#9888; <strong>No cuadra</strong>'} — balance del mes ${fmt(r.flujo)} · cambio real del patrimonio ${fmt(r.cambio)} · diferencia <strong>${fmt(r.diff)}</strong>
+    <div style="font-size:11px;margin-top:4px">
+      ${multi?'El snapshot anterior es de '+r.prevLabel+', así que el cambio cubre '+r.gapMonths+' meses y la comparación no es directa. ':''}
+      ${ok?'El balance calculado explica el movimiento de tus saldos.'
+          :(r.diff>0?'Tu patrimonio subió más de lo que explica el balance: puede haber ingreso no capturado o una cuenta sin importar.'
+                   :'Tu patrimonio bajó más de lo que explica el balance: puede haber gasto no capturado, intereses, o una cuenta sin importar.')}
+    </div></div>`;
 }
 // ── NAVIGATION ────────────────────────────────────
 function goAnnual(){
@@ -1052,16 +1153,141 @@ function renderAnnual(){
     </div>`;
   }).join('');
   renderAnnualBreakdowns(y);
-  const pat=getAnnualPat(y);
-  document.getElementById('pat-annual-trading').value=pat.trading||'';
-  document.getElementById('pat-annual-savings').value=pat.savings||'';
-  document.getElementById('pat-annual-other').value=pat.other||'';
-  document.getElementById('pat-annual-total').textContent=fmt((pat.trading||0)+(pat.savings||0)+(pat.other||0));
-  const patYears=[],patVals=[];
-  for(let i=4;i>=0;i--){const py=y-i;const pp=getAnnualPat(py);patYears.push(py);patVals.push((pp.trading||0)+(pp.savings||0)+(pp.other||0));}
+  renderPatrimonioAnual(y);
+  renderDiagnostico(y);
+}
+function renderPatrimonioAnual(y){
+  const net=[],deuda=[],meses=[];
+  for(let m=0;m<12;m++){
+    const n=patNet(getPat(y,m));
+    net.push(n?n.net:null); deuda.push(n?n.liab:null);
+    if(n) meses.push(m);
+  }
+  const sum=document.getElementById('pat-annual-summary');
+  if(sum){
+    if(!meses.length){
+      sum.innerHTML='<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Todavía no hay saldos registrados en '+y+'. Entra a un mes y usa la tarjeta <strong>Patrimonio al cierre del mes</strong>: es lo que permite saber si el déficit se está financiando con deuda.</div>';
+    } else {
+      const first=patNet(getPat(y,meses[0])), last=patNet(getPat(y,meses[meses.length-1]));
+      const dNet=last.net-first.net, dDeuda=last.liab-first.liab;
+      sum.innerHTML=`<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin-bottom:10px">
+        <div>Último registro: <strong>${MONTHS[meses[meses.length-1]]}</strong></div>
+        <div>Patrimonio neto: <strong style="color:${last.net>=0?'var(--green)':'var(--red)'}">${fmt(last.net)}</strong></div>
+        <div>Deuda total: <strong style="color:var(--red)">${fmt(last.liab)}</strong></div>
+        ${meses.length>1?`<div style="color:var(--text2)">En el año: neto <strong style="color:${dNet>=0?'var(--green)':'var(--red)'}">${dNet>=0?'+':''}${fmt(dNet)}</strong> · deuda <strong style="color:${dDeuda<=0?'var(--green)':'var(--red)'}">${dDeuda>=0?'+':''}${fmt(dDeuda)}</strong></div>`:''}
+      </div>`;
+    }
+  }
   const pc=document.getElementById('pat-chart');
   if(patChart) patChart.destroy();
-  patChart=new Chart(pc,{type:'line',data:{labels:patYears,datasets:[{label:'Patrimonio',data:patVals,borderColor:'#378ADD',backgroundColor:'rgba(55,138,221,0.07)',borderWidth:2,pointRadius:4,tension:0.3,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{font:{size:10},color:'#9b9b98'},grid:{display:false}},y:{ticks:{font:{size:10},color:'#9b9b98',callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(0,0,0,0.05)'}}}}});
+  patChart=new Chart(pc,{type:'line',data:{labels:MONTHS.map(m=>m.substring(0,3)),datasets:[
+    {label:'Patrimonio neto',data:net,borderColor:'#378ADD',backgroundColor:'rgba(55,138,221,0.07)',borderWidth:2,pointRadius:3,tension:0.25,fill:true,spanGaps:true},
+    {label:'Deuda total',data:deuda,borderColor:'#E24B4A',backgroundColor:'rgba(226,75,74,0.05)',borderWidth:2,pointRadius:3,tension:0.25,fill:false,spanGaps:true}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:11},color:'#6b6b68'}}},scales:{x:{ticks:{font:{size:10},color:'#9b9b98'},grid:{display:false}},y:{ticks:{font:{size:10},color:'#9b9b98',callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(0,0,0,0.05)'}}}}});
+}
+// ── DIAGNÓSTICO ───────────────────────────────────
+// Se calcula SOLO sobre meses completos: un mes con datos hasta el día 14
+// arrastra los promedios hacia abajo y falsea la volatilidad.
+function renderDiagnostico(y){
+  const el=document.getElementById('diag-body');
+  if(!el) return;
+  const conDatos=[],parciales=[];
+  for(let m=0;m<12;m++){
+    const d=getMonth(y,m);
+    if(!d||!d.items||!d.items.length) continue;
+    const cov=monthCoverage(y,m);
+    (cov.partial?parciales:conDatos).push({m,items:d.items});
+  }
+  if(conDatos.length<2){
+    el.innerHTML='<p style="font-size:13px;color:var(--text2)">Hacen falta al menos 2 meses completos para diagnosticar. '
+      +(parciales.length?'Hay '+parciales.length+' mes(es) marcados como parciales: '+parciales.map(x=>MONTHS[x.m]).join(', ')+'.':'')+'</p>';
+    return;
+  }
+  const rows=conDatos.map(x=>{
+    const inc=x.items.filter(i=>i.type==='income').reduce((s,i)=>s+i.amount,0);
+    const exp=x.items.filter(i=>i.type==='expense').reduce((s,i)=>s+i.amount,0);
+    const fix=x.items.filter(i=>i.type==='expense'&&i.fixed).reduce((s,i)=>s+i.amount,0);
+    const extra=x.items.filter(i=>i.type==='expense'&&i.extraordinary).reduce((s,i)=>s+i.amount,0);
+    return {m:x.m,inc,exp,fix,extra,bal:inc-exp,balNorm:inc-exp+extra};
+  });
+  const n=rows.length;
+  const avg=a=>a.reduce((s,v)=>s+v,0)/a.length;
+  const incAvg=avg(rows.map(r=>r.inc)), expAvg=avg(rows.map(r=>r.exp));
+  const balAvg=avg(rows.map(r=>r.bal)), balNormAvg=avg(rows.map(r=>r.balNorm));
+  const rojos=rows.filter(r=>r.bal<0).length;
+  const sd=a=>{const m=avg(a);return Math.sqrt(avg(a.map(v=>(v-m)*(v-m))));};
+  const cvInc=incAvg>0?sd(rows.map(r=>r.inc))/incAvg*100:0;
+  const fixTotal=rows.reduce((s,r)=>s+r.fix,0);
+  const cargaFija=incAvg>0?avg(rows.map(r=>r.fix))/incAvg*100:0;
+  const cobertura=fixTotal>0?incAvg/avg(rows.map(r=>r.fix)):null;
+  // concentración de ingreso
+  const srcs={};
+  conDatos.forEach(x=>x.items.filter(i=>i.type==='income').forEach(i=>{srcs[i.cat]=(srcs[i.cat]||0)+i.amount;}));
+  const srcSorted=Object.entries(srcs).sort((a,b)=>b[1]-a[1]);
+  const incTotal=srcSorted.reduce((s,[,v])=>s+v,0);
+  const conc=incTotal>0&&srcSorted.length?srcSorted[0][1]/incTotal*100:0;
+  // desviaciones por categoría contra la mediana propia
+  const catByMonth={};
+  conDatos.forEach(x=>{
+    const per={};
+    x.items.filter(i=>i.type==='expense').forEach(i=>{const p=String(i.cat||'').split(' – ')[0];per[p]=(per[p]||0)+i.amount;});
+    Object.entries(per).forEach(([c,v])=>{(catByMonth[c]=catByMonth[c]||[]).push({m:x.m,v});});
+  });
+  const desv=[];
+  Object.entries(catByMonth).forEach(([c,list])=>{
+    if(list.length<3){
+      // Sin histórico suficiente para una mediana. Si el monto es alto, es un
+      // gasto puntual — el caso típico de un viaje: no tiene con qué compararse
+      // pero es justo lo que distorsiona el promedio del año.
+      list.forEach(x=>{ if(x.v>500) desv.push({cat:c,m:x.m,v:x.v,exceso:x.v,puntual:true}); });
+      return;
+    }
+    const med=median(list.map(x=>x.v));
+    if(med<=0) return;
+    list.forEach(x=>{ if(x.v>med*1.75 && x.v-med>200) desv.push({cat:c,m:x.m,v:x.v,med,exceso:x.v-med}); });
+  });
+  desv.sort((a,b)=>b.exceso-a.exceso);
+  // top contrapartes
+  const partes={};
+  conDatos.forEach(x=>x.items.filter(i=>i.type==='expense').forEach(i=>{
+    const k=normRuleKey(i.name).substring(0,28);
+    if(!partes[k]) partes[k]={label:String(i.name).substring(0,42),total:0,n:0};
+    partes[k].total+=i.amount; partes[k].n++;
+  }));
+  const topPartes=Object.values(partes).sort((a,b)=>b.total-a.total).slice(0,8);
+  const stat=(label,value,color,sub)=>`<div class="kpi" style="padding:10px 12px"><div class="kpi-label">${label}</div>
+    <div style="font-size:18px;font-weight:600;color:${color||'var(--text)'}">${value}</div>
+    ${sub?`<div style="font-size:10px;color:var(--text3);margin-top:2px">${sub}</div>`:''}</div>`;
+  el.innerHTML=`
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+      Calculado sobre <strong>${n} meses completos</strong>${parciales.length?` · excluidos por datos incompletos: <strong>${parciales.map(x=>MONTHS[x.m]).join(', ')}</strong>`:''}
+    </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">
+      ${stat('Balance promedio',fmt(balAvg),balAvg>=0?'var(--green)':'var(--red)',rojos+' de '+n+' meses en rojo')}
+      ${stat('Balance sin excepcionales',fmt(balNormAvg),balNormAvg>=0?'var(--green)':'var(--red)','quitando gasto marcado como excepcional')}
+      ${stat('Carga fija promedio',fixTotal>0?cargaFija.toFixed(0)+'%':'—',cargaFija>60?'var(--red)':cargaFija>40?'var(--amber)':'var(--green)',fixTotal>0?'ingreso comprometido':'usa "Detectar fijos"')}
+      ${stat('Cobertura de fijos',cobertura===null?'—':cobertura.toFixed(2)+'x',cobertura===null?'':cobertura<1?'var(--red)':cobertura<1.5?'var(--amber)':'var(--green)','ingreso ÷ fijos')}
+      ${stat('Volatilidad del ingreso',cvInc.toFixed(0)+'%',cvInc>25?'var(--amber)':'var(--text)','ingreso promedio '+fmt(incAvg))}
+      ${stat('Concentración de ingreso',conc.toFixed(0)+'%',conc>75?'var(--amber)':'var(--text)',srcSorted.length?'de '+srcSorted[0][0]:'')}
+      ${stat('Gasto promedio',fmt(expAvg),'var(--red)','')}
+      ${stat('Meses en verde',(n-rojos)+' de '+n,(n-rojos)>rojos?'var(--green)':'var(--red)','')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:14px" id="diag-tables">
+      <div>
+        <div style="font-size:12px;font-weight:500;margin-bottom:6px">Meses fuera de tu patrón</div>
+        ${desv.length?`<table class="cat-table"><thead><tr><th>Mes · categoría</th><th style="text-align:right">Gasto</th><th style="text-align:right">Exceso</th></tr></thead><tbody>
+          ${desv.slice(0,8).map(d=>`<tr><td>${MONTHS[d.m].substring(0,3)} · ${d.cat}${d.puntual?' <span style="font-size:9px;color:var(--text3)">puntual</span>':''}</td><td style="text-align:right">${fmt(d.v)}</td><td style="text-align:right;color:var(--amber-text)">+${fmt(d.exceso)}</td></tr>`).join('')}
+        </tbody></table><div style="font-size:10px;color:var(--text3);margin-top:4px">Comparado con tu propia mediana de esa categoría, no con un promedio externo. "Puntual" = categoría que aparece en menos de 3 meses, sin base para comparar.</div>`
+        :'<p style="font-size:12px;color:var(--text2)">Ninguna categoría se desvió más de 75% sobre tu mediana.</p>'}
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:500;margin-bottom:6px">Dónde se va el dinero</div>
+        <table class="cat-table"><thead><tr><th>Contraparte</th><th style="text-align:right">Acumulado</th><th style="text-align:right">Veces</th></tr></thead><tbody>
+          ${topPartes.map(p=>`<tr><td title="${p.label.replace(/"/g,'&quot;')}" style="max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.label}</td><td style="text-align:right">${fmt(p.total)}</td><td style="text-align:right;color:var(--text3)">${p.n}</td></tr>`).join('')}
+        </tbody></table>
+      </div>
+    </div>
+    <style>@media(max-width:860px){#diag-tables{grid-template-columns:1fr}#diag-card .kpi-grid{grid-template-columns:repeat(2,1fr)}}</style>`;
 }
 // ── ANNUAL BREAKDOWNS ─────────────────────────────
 function renderAnnualBreakdowns(y){
@@ -1277,6 +1503,7 @@ function renderMonthly(){
   renderCatBreakdown(expenses,totalExp);
   renderMonthlyChart();
   renderImportedFilesPanel();
+  renderPatrimonioMensual();
   renderSearch();
 }
 // ── MISSING PANEL ─────────────────────────────────
