@@ -196,6 +196,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
         <button class="btn btn-success btn-sm" onclick="saveAnnualPatrimony()">&#10003; Guardar patrimonio</button>
         <button class="btn btn-sm" onclick="showRulesManager()" title="Ver y borrar las categorías que el sistema aprendió de tus correcciones">&#9881; Reglas aprendidas</button>
         <button class="btn btn-sm" onclick="exportJSON()">&#8595; Backup JSON</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmResetAllMonths()" title="Borrar todas las transacciones de todos los meses y empezar limpio">&#128465; Empezar de cero</button>
         <button class="btn btn-sm" onclick="importJSON()">&#8593; Importar</button>
         <button class="btn btn-sm" onclick="signOut()">Salir</button>
       </div>
@@ -709,6 +710,32 @@ function confirmClearMonth(){
       showRecurringPanel();
       renderMonthly();
       renderAnnual();
+    }
+  );
+}
+// ── EMPEZAR DE CERO ───────────────────────────────
+// Borra las transacciones de TODOS los meses (cargadas y excluidas, importadas
+// y manuales) y conserva lo que no depende de los estados de cuenta.
+// Descarga un backup automáticamente antes de borrar.
+function confirmResetAllMonths(){
+  const meses=Object.keys(appData).filter(k=>k.indexOf('budget_')===0);
+  let nItems=0,nExc=0;
+  meses.forEach(k=>{
+    nItems+=((appData[k]&&appData[k].items)||[]).length;
+    nExc+=((appData[k]&&appData[k].excludedItems)||[]).length;
+  });
+  if(!meses.length){alert('No hay meses con datos que borrar.');return;}
+  showModal(
+    'Empezar de cero',
+    'Se borrarán <strong>'+meses.length+' meses</strong> con <strong>'+nItems+' transacciones cargadas</strong> y <strong>'+nExc+' excluidas</strong>.'
+    +'<br><br><strong>SE BORRA:</strong> todo lo que esté dentro de los meses, incluidas las transacciones que hayas agregado a mano y las recurrentes.'
+    +'<br><strong>SE CONSERVA:</strong> tus cuentas guardadas, las reglas aprendidas y los snapshots de patrimonio por año.'
+    +'<br><br>Se descargará un <strong>backup JSON</strong> automáticamente antes de borrar. Esta acción no se puede deshacer desde la app.',
+    ()=>{
+      try{ exportJSON(); }catch(e){ console.error(e); }
+      meses.forEach(k=>{ delete appData[k]; });
+      saveToDrive();
+      goAnnual();
     }
   );
 }
