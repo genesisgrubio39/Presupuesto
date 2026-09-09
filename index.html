@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v12</title>
+<title>Presupuesto v13</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v12 · 2026-09-09</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v13 · 2026-09-09</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -500,7 +500,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v12 · 2026-09-09</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v13 · 2026-09-09</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -1713,7 +1713,7 @@ function renderGroupedList(elId, items, groupBy){
               <div style="margin-top:6px">
                 <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Categoría</label>
                 <div style="display:flex;gap:8px">
-                  <select id="ecat-${item.id}" style="flex:1;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text)">${getCatOptions(item.cat)}</select>
+                  <select id="ecat-${item.id}" style="flex:1;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text)">${getCatOptions(item.cat, item.type==='income'?1:-1)}</select>
                   <button class="btn btn-success btn-sm" onclick="saveEditCat(${item.id})">&#10003; Cat</button>
                 </div>
               </div>
@@ -2304,8 +2304,8 @@ function renderImportPreview(grouped){
                 <td style="white-space:nowrap;color:var(--text2)">${tx.date}</td>
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${tx.desc}${tx.ref?' · Ref: '+tx.ref:''}">${tx.desc}</td>
                 <td>
-                  <select onchange="updateTxCat('${key}',${i},this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:${tx.cat==='Sin especificar'?'var(--amber-bg)':'var(--bg)'};color:${tx.cat==='Sin especificar'?'var(--amber-text)':'var(--text)'}">
-                    ${getCatOptions(tx.cat)}
+                  <select id="ptx-${key}-${i}" onchange="updateTxCat('${key}',${i},this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:${tx.cat==='Sin especificar'?'var(--amber-bg)':'var(--bg)'};color:${tx.cat==='Sin especificar'?'var(--amber-text)':'var(--text)'}">
+                    ${getCatOptions(tx.cat, tx.amount)}
                   </select>
                 </td>
                 <td style="text-align:right;font-weight:500;color:${tx.amount>0?'var(--green)':'var(--red)'}">${fmt(Math.abs(tx.amount))}</td>
@@ -2326,9 +2326,9 @@ function renderImportPreview(grouped){
                   <span style="font-size:10px;color:var(--text3);display:block">${tx.excludeLabel||''}</span>
                 </td>
                 <td>
-                  <select onchange="updateExcludedCat('${key}',${i},this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);color:var(--text3)">
+                  <select id="pex-${key}-${i}" onchange="updateExcludedCat('${key}',${i},this.value,this)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);color:var(--text3)">
                     <option value="Excluir" selected>Mantener excluida</option>
-                    ${getCatOptions('Excluir')}
+                    ${getCatOptions('Excluir', tx.amount)}
                   </select>
                 </td>
                 <td style="text-align:right;color:var(--text3)">${fmt(Math.abs(tx.amount))}</td>
@@ -2340,7 +2340,19 @@ function renderImportPreview(grouped){
     </div>`;
   }).join('');
 }
-function getCatOptions(selected){
+function getCatOptions(selected, amount){
+  // Una entrada nunca es "Comida" ni "Compras". Cuando el banco dice que el
+  // dinero entro, el desplegable solo ofrece categorias compatibles: asi la
+  // correccion manual no puede reintroducir el error que el importador ya evita.
+  const amt = amount===undefined ? null : parseFloat(String(amount).replace(/,/g,''));
+  if(amt!==null && amt>0){
+    const inCats=[
+      {g:'Ingresos',opts:INCOME_CATS},
+      {g:'Transferencias',opts:['Zelle – Transferencia','Ahorros – Transferencia','Ahorros – Inversión','Efectivo – Retiro']},
+      {g:'Otro',opts:['Reembolso','Sin especificar','Excluir']},
+    ];
+    return inCats.map(g=>`<optgroup label="${g.g}">${g.opts.map(o=>`<option value="${o}"${o===selected?' selected':''}>${o}</option>`).join('')}</optgroup>`).join('');
+  }
   const allCats=[
     {g:'Ingresos',opts:['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso']},
     {g:'Bills',opts:['Bills – Mortgage','Bills – HOA','Bills – Renta','Bills – Agua','Bills – Gas','Bills – Electricidad','Bills – Teléfono','Bills – Internet','Bills – Seguro médico','Bills – Seguro auto','Bills – Intereses']},
@@ -2360,17 +2372,50 @@ function getCatOptions(selected){
 // rowIdx es el índice dentro de rows (estable). Antes se usaba el índice dentro
 // de la lista filtrada de activas, que se desplazaba en cuanto una fila previa
 // pasaba a excluida, aplicando el override a la transacción equivocada.
+function catToType(cat){
+  return INCOME_CATS.includes(cat) ? 'income' : cat==='Excluir' ? 'exclude' : 'expense';
+}
+function paintSel(el,newCat,activa){
+  if(!el) return;
+  el.value=newCat;
+  const bg = newCat==='Sin especificar'?'var(--amber-bg)' : newCat==='Excluir'?(activa?'var(--red-bg)':'var(--bg2)') : 'var(--green-bg)';
+  const fg = newCat==='Sin especificar'?'var(--amber-text)': newCat==='Excluir'?(activa?'var(--red-text)':'var(--text3)') : 'var(--green-text)';
+  el.style.background=bg; el.style.color=fg;
+  const tr=el.closest && el.closest('tr');
+  if(tr && !activa) tr.style.opacity = newCat==='Excluir' ? '0.55' : '1';
+}
+// Corregir una categoria aqui vale para TODA la vista previa, no solo para la
+// fila tocada: se aplica a cada fila con la misma descripcion en todos los meses
+// que el archivo genero (un estado de cuenta produce dos tarjetas de mes, y antes
+// la de al lado se quedaba con la categoria vieja). Devuelve cuantas cambio.
+function propagateOverride(srcKey, srcIdx, desc, newCat){
+  const kw=String(desc||'').toLowerCase().replace(/\s+/g,' ').trim().substring(0,32);
+  const type=catToType(newCat);
+  let n=0;
+  Object.keys(pendingTxByMonth||{}).forEach(k=>{
+    const p=pendingTxByMonth[k]; if(!p||!p.rows) return;
+    p.rows.forEach((r,i)=>{
+      if(k===srcKey && i===srcIdx) return;
+      if(!itemMatchesRule(r.desc, kw)) return;
+      const act=document.getElementById('ptx-'+k+'-'+i);
+      const exc=document.getElementById('pex-'+k+'-'+i);
+      if(act){ p.overrides=p.overrides||{}; p.overrides[i]={cat:newCat,type}; paintSel(act,newCat,true); n++; }
+      else if(exc && newCat!=='Excluir'){ p.recovered=p.recovered||{}; p.recovered[i]={cat:newCat,type}; paintSel(exc,newCat,false); n++; }
+    });
+  });
+  return n;
+}
 function updateTxCat(key, rowIdx, newCat, selectEl){
   const row=pendingTxByMonth[key].rows[rowIdx];
   if(!row) return;
   if(!pendingTxByMonth[key].overrides) pendingTxByMonth[key].overrides={};
-  const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':newCat==='Excluir'?'exclude':'expense';
-  pendingTxByMonth[key].overrides[rowIdx]={cat:newCat, type};
-  // Update select style
-  selectEl.style.background=newCat==='Sin especificar'?'var(--amber-bg)':newCat==='Excluir'?'var(--red-bg)':'var(--green-bg)';
-  selectEl.style.color=newCat==='Sin especificar'?'var(--amber-text)':newCat==='Excluir'?'var(--red-text)':'var(--green-text)';
-  // Save rule immediately to Drive
+  pendingTxByMonth[key].overrides[rowIdx]={cat:newCat, type:catToType(newCat)};
+  paintSel(selectEl,newCat,true);
   saveCategorizationRule(row.desc, newCat);
+  const n=propagateOverride(key,rowIdx,row.desc,newCat);
+  const pend=document.getElementById('imp-pend');
+  if(pend && n) pend.innerHTML='&#10003; La misma categoria se aplico a '+n+' fila(s) igual(es) de esta vista previa.';
+  offerApplyToExisting(row.desc, newCat);
 }
 function saveCategorizationRule(desc, cat){
   if(!desc||!cat) return;
@@ -2402,10 +2447,17 @@ function updateExcludedCat(key, rowIdx, newCat, selectEl){
     if(tr) tr.style.opacity='0.55';
     return;
   }
-  const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(newCat)?'income':'expense';
-  pendingTxByMonth[key].recovered[rowIdx]={cat:newCat, type};
+  pendingTxByMonth[key].recovered[rowIdx]={cat:newCat, type:catToType(newCat)};
   selectEl.style.background='var(--green-bg)';selectEl.style.color='var(--green-text)';
   if(tr) tr.style.opacity='1';
+  const row=pendingTxByMonth[key].rows[rowIdx];
+  if(row){
+    saveCategorizationRule(row.desc, newCat);
+    const n=propagateOverride(key,rowIdx,row.desc,newCat);
+    const pend=document.getElementById('imp-pend');
+    if(pend && n) pend.innerHTML='&#10003; La misma categoria se aplico a '+n+' fila(s) igual(es) de esta vista previa.';
+    offerApplyToExisting(row.desc, newCat);
+  }
 }
 function confirmImportMonth(key, year, month){
   const {rows, overrides={}, recovered={}}=pendingTxByMonth[key];
@@ -2608,7 +2660,7 @@ function renderImportedFilesPanel(){
               <div class="edit-panel" id="edit-imp-${item.id}">
                 <div class="edit-row">
                   <div style="grid-column:span 2"><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">Categoría</label>
-                    <select id="ecat-${item.id}" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text)">${getCatOptions(item.cat)}</select>
+                    <select id="ecat-${item.id}" style="width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text)">${getCatOptions(item.cat, item.type==='income'?1:-1)}</select>
                   </div>
                   <button class="btn btn-success btn-sm" style="margin-top:16px" onclick="saveEditCat(${item.id})">&#10003;</button>
                 </div>
