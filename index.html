@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v9</title>
+<title>Presupuesto v11</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v9 · 2026-09-08</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v11 · 2026-09-09</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -194,6 +194,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
       <div class="topbar-right">
         <span class="drive-status" id="drive-status">Conectando...</span>
         <span class="user-badge" id="user-badge">—</span>
+        <button class="btn btn-sm" onclick="showCoverageReport()" title="Ver el rango de fechas cargado por cuenta y detectar estados de cuenta faltantes">&#128202; Cobertura</button>
         <button class="btn btn-sm" onclick="showRulesManager()" title="Ver y borrar las categorías que el sistema aprendió de tus correcciones">&#9881; Reglas aprendidas</button>
         <button class="btn btn-sm" onclick="exportJSON()">&#8595; Backup JSON</button>
         <button class="btn btn-danger btn-sm" onclick="confirmResetAllMonths()" title="Borrar todas las transacciones de todos los meses y empezar limpio">&#128465; Empezar de cero</button>
@@ -392,6 +393,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
                 </optgroup>
                 <optgroup label="Compras">
                   <option value="Compras – Ropa">Ropa</option>
+                  <option value="Efectivo – Retiro">Efectivo – Retiro</option>
                   <option value="Compras – Hogar">Hogar</option>
                   <option value="Compras – Electrónica">Electrónica</option>
                   <option value="Compras – Otro">Compras otro</option>
@@ -457,6 +459,21 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     </div>
   </div>
 </div>
+<!-- MODAL COBERTURA POR CUENTA -->
+<div class="modal-overlay" id="cov-overlay">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-title">&#128202; Cobertura de datos por cuenta</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:12px">
+      Primer y ultimo movimiento de cada cuenta y huecos entre meses consecutivos.
+      Un ciclo de estado dura ~30 dias, asi que un hueco de 25 dias o mas casi siempre significa un estado de cuenta que no se importo.
+      Un mes sin actividad real tambien aparece como hueco: confirmalo contra el banco antes de recargar.
+    </div>
+    <div id="cov-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sm" onclick="document.getElementById('cov-overlay').classList.remove('open')">Cerrar</button>
+    </div>
+  </div>
+</div>
 <!-- MODAL REGLAS APRENDIDAS -->
 <div class="modal-overlay" id="rules-overlay">
   <div class="modal" style="max-width:640px">
@@ -483,7 +500,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v9 · 2026-09-08</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v11 · 2026-09-09</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -902,6 +919,43 @@ function showModal(title,body,onConfirm){
 }
 function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
 // ── REGLAS APRENDIDAS ─────────────────────────────
+// Detecta estados de cuenta que nunca se importaron. Cada cuenta se recorre en
+// orden de fecha; un salto largo entre dos movimientos consecutivos es la firma
+// de un archivo ausente (ej. la tarjeta 1466 salto del 10/06 al 11/07 porque
+// July2026_1466.csv se quedo sin cargar). Un hueco tambien puede ser un ciclo
+// sin actividad real: la app lo senala, no lo corrige sola.
+function coverageByAccount(){
+  const all=[...getAllItemsAcrossMonths(),...getAllExcludedAcrossMonths()];
+  const byAcc={};
+  all.forEach(x=>{ const a=x.account||'(sin cuenta)'; (byAcc[a]=byAcc[a]||[]).push(x); });
+  const toN=d=>{ const p=String(d||'').split('/'); return p.length===3 ? new Date(+p[2],+p[0]-1,+p[1]) : null; };
+  return Object.keys(byAcc).sort().map(acc=>{
+    const rows=byAcc[acc].map(x=>({...x,_d:toN(x.date)})).filter(x=>x._d).sort((a,b)=>a._d-b._d);
+    if(!rows.length) return {acc,rows:0,gaps:[]};
+    const gaps=[];
+    for(let i=1;i<rows.length;i++){
+      const dias=Math.round((rows[i]._d-rows[i-1]._d)/86400000);
+      if(dias>=25) gaps.push({desde:rows[i-1].date, hasta:rows[i].date, dias});
+    }
+    return {acc, rows:rows.length, first:rows[0].date, last:rows[rows.length-1].date, gaps};
+  });
+}
+function showCoverageReport(){
+  const el=document.getElementById('cov-list');
+  const cov=coverageByAccount();
+  el.innerHTML = !cov.length ? '<p style="font-size:13px;color:var(--text2)">No hay transacciones cargadas.</p>'
+   : cov.map(c=>`<div class="item-row" style="display:block">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <strong style="font-size:13px">${c.acc}</strong>
+        <span style="font-size:12px;color:var(--text2)">${c.rows} movimientos &middot; ${c.first||'—'} a ${c.last||'—'}</span>
+      </div>
+      ${c.gaps.length
+        ? '<div style="margin-top:6px;font-size:12px;color:var(--amber-text)">&#9888; '+c.gaps.length+' hueco(s): '
+          + c.gaps.map(g=>g.desde+' &rarr; '+g.hasta+' ('+g.dias+' dias)').join(' &middot; ')+'</div>'
+        : '<div style="margin-top:6px;font-size:12px;color:var(--green)">&#10003; Sin huecos mayores a 25 dias</div>'}
+    </div>`).join('');
+  document.getElementById('cov-overlay').classList.add('open');
+}
 function showRulesManager(){
   renderRulesList();
   document.getElementById('rules-overlay').classList.add('open');
@@ -1856,6 +1910,8 @@ const _origGoAnnual = typeof goAnnual === 'function' ? goAnnual : null;
 // ── CSV CATEGORIZATION RULES ──────────────────────
 const CAT_RULES = [
   // EXCLUSIONES
+  {match:/bkofamerica atm.*withdrwl/i, cat:'Efectivo – Retiro', type:'expense'},
+  {match:/bkofamerica atm.*deposit/i, exclude:true, excludeLabel:'Deposito en cajero'},
   {match:/(mobile|online) banking payment to crd/i, exclude:true, excludeLabel:'Pago a tarjeta de credito'},
   {match:/payment\s*-?\s*thank you|^payment received|ba electronic payment/i, exclude:true, excludeLabel:'Pago a tarjeta de credito'},
   {match:/beginning balance/i, exclude:true, excludeLabel:'Balance inicial'},
@@ -1865,14 +1921,14 @@ const CAT_RULES = [
   // Mandar dinero a un broker o traerlo de vuelta no es gasto ni ingreso: es
   // convertir efectivo en activo y viceversa. Contarlo inflaba las dos
   // columnas y distorsionaba el déficit. Los saldos van en Patrimonio.
-  {match:/robinhood\s+des:/i, exclude:true, excludeLabel:'Transferencia a inversión'},
-  {match:/webull financial\s+des:/i, exclude:true, excludeLabel:'Transferencia a inversión'},
-  {match:/amp global clear/i, exclude:true, excludeLabel:'Transferencia a inversión'},
-  {match:/schwab brokerage/i, exclude:true, excludeLabel:'Transferencia a inversión'},
-  {match:/tradestation\s+des:/i, exclude:true, excludeLabel:'Transferencia a inversión'},
-  {match:/des:fidelity/i, exclude:true, excludeLabel:'Transferencia desde inversión'},
-  {match:/foris usa|crypto\.com/i, exclude:true, excludeLabel:'Transferencia desde inversión'},
-  {match:/interactive brokers|apex clearing|ninjatrader|tradovate|coinbase|e\*trade/i, exclude:true, excludeLabel:'Transferencia con plataforma de inversión'},
+  {match:/robinhood\s+des:/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
+  {match:/webull financial\s+des:/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
+  {match:/amp global clear/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
+  {match:/schwab brokerage/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
+  {match:/tradestation\s+des:/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
+  {match:/des:fidelity/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
+  {match:/foris usa|crypto\.com/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
+  {match:/interactive brokers|apex clearing|ninjatrader|tradovate|coinbase|e\*trade/i, exclude:true, brokerXfer:true, excludeLabel:'Transferencia con broker'},
   // ZELLE INTERNOS
   {match:/zelle payment (to|from) eddymar fuenmayor chacin/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
   {match:/zelle payment (to|from) eddymar fuenmayor/i, exclude:true, excludeLabel:'Transferencia interna Eddymar'},
@@ -1909,7 +1965,7 @@ const CAT_RULES = [
   {match:/apple\.com\/bill|apple\.com\/|applecom/i, cat:'Suscripciones – Otro', type:'expense'},
   {match:/amazon prime/i, cat:'Suscripciones – Otro', type:'expense'},
   {match:/netflix/i, cat:'Suscripciones – Streaming', type:'expense'},
-  {match:/disney|hulu|paramount|peacock/i, cat:'Suscripciones – Streaming', type:'expense'},
+  {match:/disney|\bhulu\b|paramount|peacock/i, cat:'Suscripciones – Streaming', type:'expense'},
   {match:/spotify|apple music|youtube music/i, cat:'Suscripciones – Música', type:'expense'},
   {match:/sqsp\*|squarespace/i, cat:'Suscripciones – Software', type:'expense'},
   {match:/perplexity/i, cat:'Suscripciones – Software', type:'expense'},
@@ -1917,22 +1973,22 @@ const CAT_RULES = [
   {match:/surfshark/i, cat:'Suscripciones – Software', type:'expense'},
   {match:/pipedream/i, cat:'Suscripciones – Software', type:'expense'},
   {match:/tradingview/i, cat:'Suscripciones – Trading', type:'expense'},
-  {match:/amp global|tradezella|quant.*data|bookmap|atas/i, cat:'Suscripciones – Trading', type:'expense'},
+  {match:/amp global|tradezella|quant.*data|bookmap|\batas\b/i, cat:'Suscripciones – Trading', type:'expense'},
   {match:/blink\.com/i, cat:'Suscripciones – Otro', type:'expense'},
-  {match:/gym|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
+  {match:/\bgym\b|planet fitness|la fitness/i, cat:'Suscripciones – Gym', type:'expense'},
   // TRANSPORTE
   {match:/shell/i, cat:'Transporte – Gasolina', type:'expense'},
   {match:/buc-ee|bucees/i, cat:'Transporte – Gasolina', type:'expense'},
-  {match:/exxon|chevron|bp|valero|murphy|circle k/i, cat:'Transporte – Gasolina', type:'expense'},
+  {match:/exxon|chevron|\bbp\b|valero|murphy|circle k/i, cat:'Transporte – Gasolina', type:'expense'},
   {match:/toyota ach lease/i, cat:'Transporte – Auto Loan', type:'expense'},
   {match:/gm financial|ford motor|auto loan|carmax auto/i, cat:'Transporte – Auto Loan', type:'expense'},
-  {match:/uber|lyft/i, cat:'Transporte – Uber/Lyft', type:'expense'},
+  {match:/\buber\b|\blyft\b/i, cat:'Transporte – Uber/Lyft', type:'expense'},
   {match:/autozone|advance auto|rock auto/i, cat:'Transporte – Mantenimiento', type:'expense'},
   {match:/texas brakes|fine auto care|tread zone/i, cat:'Transporte – Mantenimiento', type:'expense'},
   // COMIDA
-  {match:/h-e-b|heb/i, cat:'Comida – Supermercado', type:'expense'},
+  {match:/h-e-b|\bheb\b/i, cat:'Comida – Supermercado', type:'expense'},
   {match:/walmart|wal-mart|wm supercenter/i, cat:'Comida – Supermercado', type:'expense'},
-  {match:/kroger|aldi|whole foods|trader joe|costco|sam's/i, cat:'Comida – Supermercado', type:'expense'},
+  {match:/kroger|\baldi\b|whole foods|trader joe|costco|sam'?s club|sam's/i, cat:'Comida – Supermercado', type:'expense'},
   {match:/fiesta mart/i, cat:'Comida – Supermercado', type:'expense'},
   {match:/doordash|ubereats|grubhub|postmates/i, cat:'Comida – Delivery', type:'expense'},
   {match:/favor/i, cat:'Comida – Delivery', type:'expense'},
@@ -1946,10 +2002,10 @@ const CAT_RULES = [
   {match:/nellis auction/i, cat:'Compras – Otro', type:'expense'},
   {match:/aliexpress|alipay/i, cat:'Compras – Otro', type:'expense'},
   {match:/target/i, cat:'Compras – Hogar', type:'expense'},
-  {match:/ross store|ross/i, cat:'Compras – Ropa', type:'expense'},
+  {match:/ross store|\bross\b/i, cat:'Compras – Ropa', type:'expense'},
   {match:/burlington/i, cat:'Compras – Ropa', type:'expense'},
   {match:/marshalls/i, cat:'Compras – Ropa', type:'expense'},
-  {match:/tj maxx|tjmaxx/i, cat:'Compras – Ropa', type:'expense'},
+  {match:/t\.?\s*j\.?\s*maxx|tjmaxx/i, cat:'Compras – Ropa', type:'expense'},
   {match:/express#|express \d/i, cat:'Compras – Ropa', type:'expense'},
   {match:/hot topic/i, cat:'Compras – Ropa', type:'expense'},
   {match:/br factory|bath.*body/i, cat:'Compras – Hogar', type:'expense'},
@@ -1958,7 +2014,7 @@ const CAT_RULES = [
   {match:/dollartree/i, cat:'Compras – Hogar', type:'expense'},
   {match:/postal plus|spirit worx/i, cat:'Compras – Otro', type:'expense'},
   // SALUD
-  {match:/cvs|walgreens|rite aid|pharmacy/i, cat:'Salud – Medicamentos', type:'expense'},
+  {match:/\bcvs\b|walgreens|rite aid|pharmacy/i, cat:'Salud – Medicamentos', type:'expense'},
   {match:/woodlands primary/i, cat:'Salud – Copay/Médico', type:'expense'},
   {match:/loy\*mem|memorial.*hermann|memhermann/i, cat:'Salud – Copay/Médico', type:'expense'},
   {match:/smi imaging/i, cat:'Salud – Copay/Médico', type:'expense'},
@@ -1968,7 +2024,7 @@ const CAT_RULES = [
   // ENTRETENIMIENTO
   {match:/katy mills/i, cat:'Entretenimiento – Salidas', type:'expense'},
   {match:/star cinema|cinema grill/i, cat:'Entretenimiento – Salidas', type:'expense'},
-  {match:/movie|amc|regal/i, cat:'Entretenimiento – Salidas', type:'expense'},
+  {match:/movie|\bamc\b|regal/i, cat:'Entretenimiento – Salidas', type:'expense'},
   // EDUCACION
   {match:/udemy|coursera|skillshare/i, cat:'Educación – Cursos', type:'expense'},
   // OTROS
@@ -1990,6 +2046,11 @@ function categorizeTx(desc, amount, forceExclude, excludeLabel, isRefund){
 function classifyTx(desc, amount, forceExclude, excludeLabel){
   if(forceExclude) return {exclude:true, excludeLabel: excludeLabel||'Excluido'};
   const d = desc.toLowerCase();
+  // El banco escribe la misma marca de formas distintas: "T.J. MAXX" con puntos,
+  // "SAMS CLUB" sin apostrofo, "H-E-B" con guiones. Se prueba cada regla contra
+  // la descripcion cruda y contra una version sin puntos, apostrofos ni guiones,
+  // para que una diferencia de puntuacion no deje la transaccion sin categoria.
+  const dn = d.replace(/[.'\u2019-]/g,'');
   // Check learned rules first (user corrections take priority)
   if(appData.catRules && appData.catRules.length){
     // Emparejamiento por prefijo normalizado. La versión anterior también daba
@@ -2014,8 +2075,17 @@ function classifyTx(desc, amount, forceExclude, excludeLabel){
   }
   // Then hardcoded rules
   for(const rule of CAT_RULES){
-    if(rule.match.test(d)){
-      if(rule.exclude) return {exclude:true, excludeLabel:rule.excludeLabel||'Excluido'};
+    if(rule.match.test(d) || rule.match.test(dn)){
+      if(rule.exclude){
+        // La etiqueta de una transferencia con broker depende de la DIRECCION real
+        // del movimiento, no de la plataforma. Un ACH de Robinhood puede ser un
+        // deposito (envio) o un retiro; el signo del banco es lo unico que lo dice.
+        if(rule.brokerXfer){
+          const a=parseFloat(String(amount).replace(/,/g,''));
+          return {exclude:true, excludeLabel: a>=0 ? 'Retiro desde broker' : 'Envio a broker'};
+        }
+        return {exclude:true, excludeLabel:rule.excludeLabel||'Excluido'};
+      }
       return {cat:rule.cat, type:rule.type};
     }
   }
@@ -2144,11 +2214,23 @@ function handleCSV(e){
   reader.readAsText(file);
   e.target.value='';
 }
+const importedThisSession=new Set();
 function renderImportPreview(grouped){
+  importedThisSession.clear();
   const wrap=document.getElementById('imp-preview');
   const keys=Object.keys(grouped).sort();
   if(!keys.length){wrap.innerHTML='<div class="alert alert-warning">Sin transacciones encontradas.</div>';return;}
-  wrap.innerHTML=keys.map(key=>{
+  // Todo ciclo de estado de cuenta cruza dos meses calendario, asi que un solo
+  // archivo casi siempre produce DOS tarjetas de mes. Confirmar una y cerrar la
+  // pagina descartaba la otra en silencio: asi quedo diciembre-2025 cargado a
+  // medias (20 filas de 2 tarjetas, 32 filas de las otras 4 cuentas perdidas).
+  const aviso = keys.length>1 ? `<div class="alert alert-warning" style="margin-bottom:12px">
+      <strong>Este archivo contiene ${keys.length} meses.</strong>
+      ${keys.map(k=>MONTHS[grouped[k].month]+' '+grouped[k].year+' ('+grouped[k].rows.length+')').join(' &middot; ')}.
+      Cada uno se importa por separado: si solo confirmas uno, el resto NO se guarda.
+      <span id="imp-pend" style="display:block;margin-top:4px;font-size:12px"></span>
+    </div>` : '';
+  wrap.innerHTML=aviso+keys.map(key=>{
     const {year,month,rows}=grouped[key];
     const txs=rows.map(row=>{
       const cat=categorizeTx(row.desc, row.amount, row.forceExclude, row.excludeLabel, row.isRefund);
@@ -2235,7 +2317,7 @@ function getCatOptions(selected){
     {g:'Educación',opts:['Educación – Cursos','Educación – Materiales','Educación – Otro']},
     {g:'Entretenimiento',opts:['Entretenimiento – Salidas','Entretenimiento – Viajes','Entretenimiento – Otro']},
     {g:'Ahorros',opts:['Ahorros – Transferencia','Ahorros – Inversión']},
-    {g:'Transferencias',opts:['Zelle – Transferencia']},
+    {g:'Transferencias',opts:['Zelle – Transferencia','Efectivo – Retiro']},
     {g:'Otro',opts:['Sin especificar','Reembolso','Excluir']},
   ];
   return allCats.map(g=>`<optgroup label="${g.g}">${g.opts.map(o=>`<option value="${o}"${o===selected?' selected':''}>${o}</option>`).join('')}</optgroup>`).join('');
@@ -2316,7 +2398,7 @@ function confirmImportMonth(key, year, month){
       if(rec){ // la rescataste asignándole una categoría real: pasa a cargadas
         items.push({
           id:Date.now()+Math.random(),
-          type:rec.type,name:tx.desc,cat:rec.cat,
+          type:dirType,name:tx.desc,cat:rec.cat,
           amount:Math.abs(tx.amount),
           recurring:false,fixed:false,imported:true,
           ref:tx.ref||null,
@@ -2329,6 +2411,10 @@ function confirmImportMonth(key, year, month){
         id:Date.now()+Math.random(),
         name:tx.desc,
         reason: override ? 'Excluido manualmente' : (tx.excludeLabel||'Excluido'),
+        // Las excluidas guardaban solo el monto en positivo, sin direccion. Con
+        // eso era imposible reconciliar caja (entradas vs salidas) y, al
+        // recuperar una excluida, la app no sabia si era ingreso o gasto.
+        type:dirType,
         amount:Math.abs(tx.amount),
         ref:tx.ref||null,
         account,
@@ -2373,6 +2459,14 @@ function confirmImportMonth(key, year, month){
   existing.excludedItems=[...existing.excludedItems,...uniqueExcluded];
   setMonth(year,month,existing);
   saveToDrive();
+  const pend=document.getElementById('imp-pend');
+  if(pend){
+    const otros=Object.keys(pendingTxByMonth||{}).filter(k=>k!==key && !importedThisSession.has(k));
+    importedThisSession.add(key);
+    pend.innerHTML = otros.length
+      ? '&#9888; Falta confirmar: '+otros.map(k=>MONTHS[pendingTxByMonth[k].month]+' '+pendingTxByMonth[k].year).join(', ')
+      : '&#10003; Todos los meses de este archivo fueron importados.';
+  }
   const card=document.getElementById('imp-month-'+key);
   // Reporte explícito de lo que quedó guardado, para que un fallo silencioso
   // sea visible en el momento de importar y no semanas después.
@@ -2565,11 +2659,30 @@ function toggleEditImported(id){
 // anterior: mismos primeros 30 caracteres del nombre + mismo monto (tolerancia 0.01) + misma fecha.
 function isDuplicateGlobal(newItem, existingItems){
   const newRef=(newItem.ref||'').trim();
+  const newAcc=(newItem.account||'').trim();
+  const newName=String(newItem.name||newItem.desc||'').replace(/\s+/g,' ').trim();
   return existingItems.some(e=>{
     const eRef=(e.ref||'').trim();
-    if(newRef && eRef) return eRef===newRef;
+    // Bank of America NO garantiza que la referencia sea unica: asigna la misma
+    // al cargo en moneda extranjera y a su comision. Ej. 07/13/2026 ref
+    // 74987506194000101789083 -> "ATAS LLC Riga" -$206.14 y "CARGO POR
+    // TRANSACCION EXTRANJERA" -$6.18. Tratar ref igual como duplicado seguro
+    // borraba el cargo real. Ahora la ref debe coincidir JUNTO CON el monto.
+    if(newRef && eRef) return eRef===newRef &&
+      Math.abs(Math.abs(e.amount||0)-Math.abs(newItem.amount||0))<0.01;
+    // Sin numero de referencia (CSV de debito) la comparacion era
+    // nombre[0..30] + monto + fecha, SIN mirar la cuenta. Las descripciones de
+    // Bank of America comparten prefijos largos: "Mobile Banking payment to CRD "
+    // ocupa 29 caracteres, asi que un pago de $1.000 a la tarjeta 4160 desde una
+    // cuenta y otro de $1.000 a la tarjeta 1466 desde otra, el mismo dia, se
+    // veian identicos y el segundo se descartaba como duplicado. Lo mismo con
+    // dos retiros de cajero consecutivos (#000006597 / #000006598).
+    // Un duplicado real siempre viene de la MISMA cuenta y con la descripcion
+    // COMPLETA identica (BofA incluye Conf#/ID, que distingue cada operacion).
+    const eAcc=(e.account||'').trim();
+    if(newAcc && eAcc && newAcc!==eAcc) return false;
     return (
-      (e.name||'').substring(0,30)===(newItem.name||newItem.desc||'').substring(0,30) &&
+      String(e.name||'').replace(/\s+/g,' ').trim()===newName &&
       Math.abs(Math.abs(e.amount||0)-Math.abs(newItem.amount||0))<0.01 &&
       e.date===newItem.date
     );
@@ -2582,7 +2695,8 @@ function isDuplicate(newItem, existingItems){
 function exportJSON(){
   const blob=new Blob([JSON.stringify(appData,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download='presupuesto_backup_'+new Date().toISOString().slice(0,10)+'.json';a.click();
+  const _t=new Date();const _p=n=>String(n).padStart(2,'0');
+  a.download='presupuesto_backup_'+_t.getFullYear()+_p(_t.getMonth()+1)+_p(_t.getDate())+'_'+_p(_t.getHours())+_p(_t.getMinutes())+'.json';a.click();
 }
 function exportCSV(){
   const data=getCurrentData();
