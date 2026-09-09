@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v16</title>
+<title>Presupuesto v17</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v16 · 2026-09-09</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v17 · 2026-09-09</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -194,6 +194,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
       <div class="topbar-right">
         <span class="drive-status" id="drive-status">Conectando...</span>
         <span class="user-badge" id="user-badge">—</span>
+        <button class="btn btn-sm" onclick="showAIPrompt('anio')" title="Genera un bloque con tus datos del año y las reglas de lectura, listo para pegar en una IA">&#129302; Analizar con IA</button>
         <button class="btn btn-sm" onclick="showCoverageReport()" title="Ver el rango de fechas cargado por cuenta y detectar estados de cuenta faltantes">&#128202; Cobertura</button>
         <button class="btn btn-sm" onclick="showRulesManager()" title="Ver y borrar las categorías que el sistema aprendió de tus correcciones">&#9881; Reglas aprendidas</button>
         <button class="btn btn-sm" onclick="exportJSON()">&#8595; Backup JSON</button>
@@ -257,6 +258,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
       <span class="save-status" id="saveStatus">Sin cambios pendientes</span>
       <span class="drive-status" id="drive-status-monthly">—</span>
       <button class="btn btn-success btn-sm" onclick="saveData()">&#10003; Guardar</button>
+      <button class="btn btn-sm" onclick="showAIPrompt('mes')" title="Genera el prompt de analisis de este mes, comparado contra tu propia mediana">&#129302; Analizar con IA</button>
       <button class="btn btn-sm" onclick="detectRecurring()" title="Marca como fijos los gastos que se repiten cada mes con monto estable">&#9881; Detectar fijos</button>
       <button class="btn btn-sm" onclick="exportCSV()">&#8595; CSV</button>
       <button class="btn btn-danger btn-sm" onclick="confirmClearMonth()">&#128465; Borrar mes</button>
@@ -459,6 +461,26 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     </div>
   </div>
 </div>
+<!-- MODAL PROMPT IA -->
+<div class="modal-overlay" id="ai-overlay">
+  <div class="modal" style="max-width:900px">
+    <div class="modal-title" id="ai-title">Prompt de analisis</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px">
+      Copia este bloque y pégalo en la IA que quieras. Lleva tus datos agregados y las reglas de lectura,
+      para que quien analice no confunda una transferencia con un ingreso ni un mes parcial con uno completo.
+      No incluye numeros de cuenta ni de tarjeta: solo los ultimos 4 digitos que tu misma pusiste al crear cada cuenta.
+    </div>
+    <textarea id="ai-text" readonly spellcheck="false"
+      style="width:100%;height:400px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.45;
+             padding:10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--text);resize:vertical"></textarea>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px" id="ai-meta"></div>
+    <div class="modal-actions">
+      <button class="btn btn-success btn-sm" id="ai-copy-btn" onclick="copyAIPrompt()">&#128203; Copiar todo</button>
+      <button class="btn btn-sm" onclick="downloadAIPrompt()">&#8595; Descargar .txt</button>
+      <button class="btn btn-sm" onclick="document.getElementById('ai-overlay').classList.remove('open')">Cerrar</button>
+    </div>
+  </div>
+</div>
 <!-- MODAL COBERTURA POR CUENTA -->
 <div class="modal-overlay" id="cov-overlay">
   <div class="modal" style="max-width:760px">
@@ -500,7 +522,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v16 · 2026-09-09</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v17 · 2026-09-09</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -964,6 +986,219 @@ function showCoverageReport(){
         : '<div style="margin-top:6px;font-size:12px;color:var(--green)">&#10003; Sin huecos mayores a 25 dias</div>'}
     </div>`).join('');
   document.getElementById('cov-overlay').classList.add('open');
+}
+// ══ PROMPT PARA ANALISIS CON IA ═════════════════════════════════════════════
+// Genera un bloque de texto autocontenido: reglas de lectura + datos agregados.
+// El objetivo es que un modelo que NO conoce esta app pueda analizar sin repetir
+// los errores que ya costaron encontrar aqui (contar transferencias como ingreso,
+// tratar un retiro de broker como ganancia, tomar un mes parcial como completo).
+const AI_INCOME=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'];
+function aiMoney(n){ return (n<0?'-$':'$')+Math.abs(Number(n)||0).toFixed(2); }
+function aiMonthStats(y,m){
+  const d=getMonth(y,m)||{};
+  const it=d.items||[], ex=d.excludedItems||[];
+  let inc=0,exp=0,fijo=0,exc=0;
+  it.forEach(x=>{ if(x.type==='income') inc+=x.amount; else { exp+=x.amount; if(x.fixed) fijo+=x.amount; if(x.extraordinary) exc+=x.amount; } });
+  return {y,m,it,ex,inc,exp,bal:inc-exp,fijo,exc,cov:monthCoverage(y,m)};
+}
+function aiGroup(list, keyFn, valFn){
+  const g={};
+  list.forEach(x=>{ const k=keyFn(x); if(k===null||k===undefined) return;
+    g[k]=g[k]||{n:0,s:0}; g[k].n++; g[k].s+=valFn(x); });
+  return Object.entries(g).sort((a,b)=>Math.abs(b[1].s)-Math.abs(a[1].s));
+}
+function aiTable(rows, cols){
+  return rows.map(r=>'  '+cols.map((c,i)=>String(r[i]).padEnd(c)).join('').trimEnd()).join('\n');
+}
+function aiHeader(scope){
+  const accs=[...new Set([...getAllItemsAcrossMonths(),...getAllExcludedAcrossMonths()].map(x=>x.account).filter(Boolean))];
+  return [
+'Eres un analista financiero. Analiza los datos de abajo con criterio profesional.',
+'',
+'REGLAS OBLIGATORIAS',
+'1. No inventes datos. Si algo no esta en el bloque, di que no esta y no lo estimes.',
+'2. Distingue lo verificable de lo interpretativo. Marca cada conclusion con una de las dos etiquetas.',
+'3. Si hay varios escenarios posibles, sepáralos; no promedies entre ellos.',
+'4. Señala inconsistencias del propio dato antes de sacar conclusiones sobre el.',
+'5. Nada de consejos genericos de finanzas personales. Todo debe apoyarse en una cifra de abajo.',
+'6. Delimita la incertidumbre: di que dato faltante cambiaria tu conclusion.',
+'',
+'COMO LEER ESTOS DATOS (convenciones ya aplicadas, no las recalcules)',
+'- La direccion ingreso/gasto la fija el SIGNO del banco, no la categoria.',
+'- Las transferencias internas entre cuentas propias estan EXCLUIDAS del balance.',
+'- Los pagos de tarjeta estan EXCLUIDOS en ambos lados: el gasto ya se contó al hacer el cargo.',
+'  Contarlos otra vez al pagar duplicaria el gasto.',
+'- Los movimientos con brokers (Robinhood, AMP, Schwab, Webull, TradeStation, Fidelity, Crypto.com)',
+'  estan EXCLUIDOS del balance: mover capital entre plataformas propias no es ingreso ni gasto.',
+'  Un retiro de broker que termina pagando consumo es LIQUIDACION DE UN ACTIVO, no ingreso.',
+'- Un prestamo recibido no es ingreso: es efectivo mas pasivo.',
+'- Un reembolso aparece como gasto NEGATIVO dentro de su categoria, no como ingreso.',
+'- "Excluido" no significa error: significa que no altera el resultado del periodo.',
+'  La seccion de excluidas es informacion estructural, no ruido: leela.',
+'',
+'PERIMETRO',
+'- Cuentas cargadas ('+accs.length+'): '+(accs.join(' | ')||'ninguna'),
+'- Solo existe lo que pasa por estas cuentas. Flujos por fuera de ellas no estan y no deben suponerse.',
+'- Alcance de este bloque: '+scope,
+''].join('\n');
+}
+function buildAIPromptYear(y){
+  const L=[]; L.push(aiHeader('AÑO '+y+' completo, con desglose mensual'));
+  const meses=[]; for(let m=0;m<12;m++){ const st=aiMonthStats(y,m); if(st.it.length||st.ex.length) meses.push(st); }
+  if(!meses.length) return aiHeader('AÑO '+y)+'\nNO HAY DATOS CARGADOS PARA '+y+'.';
+  const tI=meses.reduce((a,b)=>a+b.inc,0), tE=meses.reduce((a,b)=>a+b.exp,0);
+  L.push('RESULTADO DEL AÑO');
+  L.push('  Ingreso  '+aiMoney(tI));
+  L.push('  Gasto    '+aiMoney(tE));
+  L.push('  Balance  '+aiMoney(tI-tE));
+  L.push('  Meses con datos: '+meses.length+'   en verde: '+meses.filter(m=>m.bal>0).length);
+  L.push('');
+  L.push('MES A MES  (parcial = el mes no tiene datos en todo su rango; no lo compares con uno completo)');
+  L.push(aiTable(meses.map(m=>[MONTHS[m.m], aiMoney(m.inc), aiMoney(m.exp), aiMoney(m.bal),
+    m.cov.accounts.length+' ctas', m.cov.partial?'PARCIAL':'completo']),[12,14,14,14,9,9]));
+  L.push('');
+  const allIt=[].concat(...meses.map(m=>m.it));
+  const gastos=allIt.filter(x=>x.type==='expense');
+  L.push('GASTO POR CATEGORIA (el negativo es reembolso neto)');
+  L.push(aiTable(aiGroup(gastos,x=>x.cat||'Sin categoria',x=>x.amount)
+    .map(([k,v])=>[k,aiMoney(v.s),(v.s/tE*100).toFixed(1)+'%',v.n+' mov']),[30,14,8,8]));
+  L.push('');
+  L.push('INGRESO POR FUENTE');
+  L.push(aiTable(aiGroup(allIt.filter(x=>x.type==='income'),x=>x.cat||'Sin categoria',x=>x.amount)
+    .map(([k,v])=>[k,aiMoney(v.s),(v.s/tI*100).toFixed(1)+'%',v.n+' mov']),[30,14,8,8]));
+  L.push('');
+  const allEx=[].concat(...meses.map(m=>m.ex));
+  L.push('FUERA DEL BALANCE, POR MOTIVO Y DIRECCION  (entra = a tus cuentas, sale = de tus cuentas)');
+  L.push(aiTable(aiGroup(allEx,x=>(x.reason||'?')+' · '+(x.type==='income'?'entra':'sale'),x=>Math.abs(x.amount))
+    .map(([k,v])=>[k,aiMoney(v.s),v.n+' mov']),[46,14,8]));
+  L.push('');
+  const fij=gastos.filter(x=>x.fixed);
+  if(fij.length){
+    L.push('GASTO FIJO DETECTADO  (mismo concepto en 3+ meses con monto estable)');
+    L.push(aiTable(aiGroup(fij,x=>String(x.name||'').slice(0,34),x=>x.amount)
+      .map(([k,v])=>[k,aiMoney(v.s),aiMoney(v.s/v.n)+'/mes',v.n+' mov']),[36,14,16,8]));
+    L.push('  Total fijo del año '+aiMoney(fij.reduce((a,b)=>a+b.amount,0)));
+    L.push('');
+  } else { L.push('GASTO FIJO: no se ha ejecutado la deteccion de fijos. No asumas cuanto es la carga fija.'); L.push(''); }
+  L.push('MAYORES CONTRAPARTES DEL AÑO');
+  L.push(aiTable(aiGroup(gastos,x=>String(x.name||'').slice(0,34),x=>x.amount).slice(0,15)
+    .map(([k,v])=>[k,aiMoney(v.s),v.n+' veces']),[36,14,10]));
+  L.push('');
+  const exOnce=gastos.filter(x=>x.extraordinary);
+  if(exOnce.length){
+    L.push('MARCADOS COMO EXCEPCIONALES POR EL USUARIO (no representan el patron normal)');
+    L.push(aiTable(exOnce.map(x=>[x.date,aiMoney(x.amount),String(x.name||'').slice(0,40)]),[12,14,42]));
+    L.push('');
+  }
+  const pats=[]; for(let m=0;m<12;m++){ const p=getPat(y,m); if(p) pats.push([MONTHS[m],p]); }
+  if(pats.length){
+    L.push('PATRIMONIO AL CIERRE DE MES  (saldos declarados, no movimientos)');
+    L.push(aiTable(pats.map(([n,p])=>{const q=patNet(p);return [n,'activos '+aiMoney(q.assets),'pasivos '+aiMoney(q.liab),'neto '+aiMoney(q.net)];}),[12,22,22,22]));
+  } else {
+    L.push('PATRIMONIO: SIN REGISTRAR. No se puede saber si el deficit se financio con deuda o con ahorro.');
+    L.push('  Trata esto como el principal dato faltante.');
+  }
+  L.push('');
+  L.push('COBERTURA DE DATOS POR CUENTA  (un hueco de 25+ dias suele ser un estado de cuenta no importado)');
+  coverageByAccount().forEach(c=>{
+    L.push('  '+c.acc+'  '+c.rows+' mov  '+(c.first||'—')+' a '+(c.last||'—')+
+      (c.gaps.length? '  HUECOS: '+c.gaps.map(g=>g.desde+'->'+g.hasta+' ('+g.dias+'d)').join(', ') : '  sin huecos'));
+  });
+  L.push('');
+  L.push('QUE QUIERO DE TI');
+  L.push('1. Resultado real del año y de que depende. Distingue lo estructural de lo puntual.');
+  L.push('2. Ciclo LARGO: que tendencia hay a lo largo de los meses. Es estable, mejora o se deteriora.');
+  L.push('3. El punto mas debil, uno solo, con la cifra que lo demuestra.');
+  L.push('4. Que se financio con que: si el balance es negativo, di de donde salio el dinero segun estos datos.');
+  L.push('5. Dos o tres acciones concretas, cada una con el monto que libera al mes.');
+  L.push('6. Que dato falta para que tu analisis sea concluyente.');
+  return L.join('\n');
+}
+function buildAIPromptMonth(y,m){
+  const st=aiMonthStats(y,m);
+  const L=[]; L.push(aiHeader('MES '+MONTHS[m]+' '+y+', comparado contra los demas meses cargados'));
+  if(!st.it.length && !st.ex.length) return L.join('\n')+'\nNO HAY DATOS EN ESTE MES.';
+  L.push('RESULTADO DEL MES');
+  L.push('  Ingreso  '+aiMoney(st.inc));
+  L.push('  Gasto    '+aiMoney(st.exp));
+  L.push('  Balance  '+aiMoney(st.bal));
+  if(st.fijo) L.push('  Gasto fijo '+aiMoney(st.fijo)+'   cobertura ingreso/fijos '+(st.fijo?(st.inc/st.fijo).toFixed(2)+'x':'—'));
+  if(st.exc)  L.push('  Marcado excepcional '+aiMoney(st.exc)+'   balance sin excepcionales '+aiMoney(st.bal+st.exc));
+  const c=st.cov;
+  L.push('  Cobertura: '+(c.empty?'sin datos':fmtDayMonth(c.first)+' a '+fmtDayMonth(c.last)+' · '+c.accounts.length+' cuentas · '+(c.partial?'MES PARCIAL — no lo compares de igual a igual con un mes completo':'mes completo')));
+  L.push('');
+  const otros=[]; for(let i=0;i<12;i++){ if(i===m) continue; const o=aiMonthStats(y,i); if(o.it.length&&!o.cov.partial) otros.push(o); }
+  if(otros.length){
+    const mi=median(otros.map(o=>o.inc)), me=median(otros.map(o=>o.exp)), mb=median(otros.map(o=>o.bal));
+    L.push('CONTRA TU PROPIA MEDIANA  ('+otros.length+' meses completos, este mes excluido del calculo)');
+    L.push('  Ingreso  mediana '+aiMoney(mi)+'   este mes '+aiMoney(st.inc)+'   dif '+aiMoney(st.inc-mi));
+    L.push('  Gasto    mediana '+aiMoney(me)+'   este mes '+aiMoney(st.exp)+'   dif '+aiMoney(st.exp-me));
+    L.push('  Balance  mediana '+aiMoney(mb)+'   este mes '+aiMoney(st.bal)+'   dif '+aiMoney(st.bal-mb));
+    L.push('');
+    const catMes={}; st.it.filter(x=>x.type==='expense').forEach(x=>{const k=x.cat||'?';catMes[k]=(catMes[k]||0)+x.amount;});
+    const desv=[];
+    Object.keys(catMes).forEach(k=>{
+      const serie=otros.map(o=>o.it.filter(x=>x.type==='expense'&&x.cat===k).reduce((a,b)=>a+b.amount,0)).filter(v=>v>0);
+      if(serie.length>=3){ const md=median(serie); if(md>0 && catMes[k]>md*1.4) desv.push([k,aiMoney(catMes[k]),'mediana '+aiMoney(md),'+'+aiMoney(catMes[k]-md)]); }
+      else if(catMes[k]>300) desv.push([k,aiMoney(catMes[k]),'sin base (aparece en <3 meses)','puntual']);
+    });
+    if(desv.length){ L.push('CATEGORIAS FUERA DE TU PATRON ESTE MES'); L.push(aiTable(desv,[28,14,34,14])); L.push(''); }
+  }
+  L.push('GASTO DEL MES POR CATEGORIA');
+  L.push(aiTable(aiGroup(st.it.filter(x=>x.type==='expense'),x=>x.cat||'?',x=>x.amount)
+    .map(([k,v])=>[k,aiMoney(v.s),v.n+' mov']),[30,14,8]));
+  L.push('');
+  L.push('INGRESO DEL MES');
+  L.push(aiTable(aiGroup(st.it.filter(x=>x.type==='income'),x=>x.cat||'?',x=>x.amount)
+    .map(([k,v])=>[k,aiMoney(v.s),v.n+' mov']),[30,14,8]));
+  L.push('');
+  const top=st.it.filter(x=>x.type==='expense').sort((a,b)=>b.amount-a.amount).slice(0,20);
+  L.push('MAYORES SALIDAS DEL MES (top '+top.length+')');
+  L.push(aiTable(top.map(x=>[x.date,aiMoney(x.amount),(x.cat||'?').slice(0,24),String(x.name||'').slice(0,40)]),[12,13,26,42]));
+  L.push('');
+  if(st.ex.length){
+    L.push('FUERA DEL BALANCE ESTE MES  (estructura del dinero, no ruido)');
+    L.push(aiTable(aiGroup(st.ex,x=>(x.reason||'?')+' · '+(x.type==='income'?'entra':'sale'),x=>Math.abs(x.amount))
+      .map(([k,v])=>[k,aiMoney(v.s),v.n+' mov']),[46,14,8]));
+    L.push('');
+  }
+  const p=getPat(y,m), q=patNet(p);
+  if(q){ L.push('PATRIMONIO AL CIERRE: activos '+aiMoney(q.assets)+'  pasivos '+aiMoney(q.liab)+'  neto '+aiMoney(q.net)); L.push(''); }
+  L.push('QUE QUIERO DE TI');
+  L.push('1. Ciclo CORTO: que paso en este mes concretamente y si fue tipico o atipico.');
+  L.push('2. Cuanto del desvio es puntual y cuanto revela un cambio de patron. Justifica con las cifras.');
+  L.push('3. Si el mes es parcial, di explicitamente que conclusiones NO se pueden sacar.');
+  L.push('4. Una accion concreta para el mes siguiente, con el monto que libera.');
+  L.push('5. Que dato de este mes te resulta sospechoso o incoherente.');
+  return L.join('\n');
+}
+function showAIPrompt(scope){
+  const txt = scope==='mes' ? buildAIPromptMonth(activeYear,activeMonth) : buildAIPromptYear(activeYear);
+  const el=document.getElementById('ai-text');
+  el.value=txt;
+  document.getElementById('ai-title').textContent = scope==='mes'
+    ? 'Prompt de analisis — '+MONTHS[activeMonth]+' '+activeYear
+    : 'Prompt de analisis — año '+activeYear;
+  document.getElementById('ai-meta').textContent = txt.length.toLocaleString('en-US')+' caracteres · '+txt.split('\n').length+' lineas';
+  document.getElementById('ai-overlay').classList.add('open');
+}
+function copyAIPrompt(){
+  const el=document.getElementById('ai-text');
+  el.select(); el.setSelectionRange(0,999999);
+  let ok=false;
+  try{ ok=document.execCommand('copy'); }catch(e){}
+  if(navigator.clipboard && !ok){ navigator.clipboard.writeText(el.value).then(()=>{},()=>{}); ok=true; }
+  const b=document.getElementById('ai-copy-btn');
+  b.textContent = ok ? '✓ Copiado' : 'Selecciona el texto y copia con Ctrl+C';
+  setTimeout(()=>{ b.innerHTML='&#128203; Copiar todo'; },2500);
+}
+function downloadAIPrompt(){
+  const el=document.getElementById('ai-text');
+  const blob=new Blob([el.value],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  const t=document.getElementById('ai-title').textContent.replace(/[^a-z0-9]+/gi,'_').toLowerCase();
+  a.download=t+'.txt'; a.click();
 }
 function showRulesManager(){
   renderRulesList();
