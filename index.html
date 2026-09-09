@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v11</title>
+<title>Presupuesto v12</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v11 · 2026-09-09</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v12 · 2026-09-09</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -500,7 +500,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v11 · 2026-09-09</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v12 · 2026-09-09</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -1183,6 +1183,9 @@ function saveEdit(id){
     }
     item.cat=newCat;
     saveCategorizationRule(newName, newCat);
+    setCurrentData(data);markUnsaved();saveToDrive();renderMonthly();
+    offerApplyToExisting(newName, newCat);
+    return;
   }
   setCurrentData(data);markUnsaved();saveToDrive();renderMonthly();
 }
@@ -1199,6 +1202,23 @@ function saveEditCat(id){
   setCurrentData(data);
   saveCategorizationRule(item.name, newCat);
   markUnsaved();saveToDrive();renderMonthly();
+  offerApplyToExisting(item.name, newCat);
+}
+// Corregir una transaccion guardaba la regla para el FUTURO, pero dejaba intactas
+// las ya cargadas: cambiar un "Amazon Logistics" a Freelance 1099 dejaba los otros
+// 20 como "Compras – Otro", y la correccion parecia no haberse guardado. Ahora se
+// cuenta cuantas iguales quedaron con otra categoria y se ofrece aplicarlo a todas.
+function offerApplyToExisting(name, newCat){
+  const kw=String(name||'').toLowerCase().replace(/\s+/g,' ').trim().substring(0,32);
+  let n=0;
+  Object.keys(appData).forEach(k=>{ if(k.indexOf('budget_')!==0) return;
+    (appData[k].items||[]).forEach(it=>{ if(it.cat!==newCat && itemMatchesRule(it.name,kw)) n++; }); });
+  if(!n) return;
+  showModal('Aplicar a las ya cargadas',
+    'Hay <strong>'+n+'</strong> transaccion(es) igual(es) con otra categoria.<br><br>'+
+    '<span style="font-size:12px;color:var(--text2)">Se cambiaran a <strong>'+newCat+'</strong>. '+
+    'La direccion (ingreso o gasto) no se toca: la fijo el signo del banco.</span>',
+    ()=>{ applyRuleToExisting(kw,newCat); });
 }
 // "Excluir" no es una categoría: es sacar la transacción del balance. Antes solo
 // se le cambiaba la etiqueta a cat:'Excluir' y la transacción seguía sumando
@@ -1998,6 +2018,10 @@ const CAT_RULES = [
   {match:/crazy bites|maxi arepa|pasteles|nuestra casa/i, cat:'Comida – Restaurantes', type:'expense'},
   {match:/chick-fil/i, cat:'Comida – Restaurantes', type:'expense'},
   // COMPRAS
+  // Amazon Flex paga como "Amazon Logistics DES:PAYMENTS". La regla generica
+  // /amazon/ lo tomaba como compra: 23 movimientos y $6.267,26 de ingreso de
+  // trabajo etiquetados como gasto. Va antes por orden de evaluacion.
+  {match:/amazon logistics/i, cat:'Freelance 1099', type:'income'},
   {match:/amazon mktpl|amazon mark|amazon reta|amazon/i, cat:'Compras – Otro', type:'expense'},
   {match:/nellis auction/i, cat:'Compras – Otro', type:'expense'},
   {match:/aliexpress|alipay/i, cat:'Compras – Otro', type:'expense'},
@@ -2036,8 +2060,19 @@ const CAT_RULES = [
 // hogar: o es un pago tuyo a la tarjeta (transferencia, se excluye) o es una
 // devolución de una compra. Antes caía en el último recurso del clasificador y
 // se registraba como "Otro ingreso", inflando el ingreso del mes.
+const INCOME_CATS=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'];
 function categorizeTx(desc, amount, forceExclude, excludeLabel, isRefund){
   const res=classifyTx(desc, amount, forceExclude, excludeLabel);
+  // Red de seguridad de coherencia. El signo del banco ya fija la direccion, pero
+  // una regla de comercio podia dejar una ENTRADA con etiqueta de gasto: el
+  // reembolso de escrow de PennyMac entraba como "Bills – Mortgage", sumando al
+  // ingreso bajo una categoria de gasto. Si el dinero entra y la regla automatica
+  // asigno una categoria de gasto, se degrada a "Otro ingreso". Una regla APRENDIDA
+  // no se toca: si tu elegiste esa categoria, tu eleccion manda.
+  if(!isRefund && !res.exclude && !res.learned && parseFloat(String(amount).replace(/,/g,''))>0
+     && res.cat && !INCOME_CATS.includes(res.cat) && res.cat!=='Reembolso'){
+    return {cat:'Otro ingreso', type:'income'};
+  }
   if(!isRefund || res.exclude) return res;
   const incomeCats=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'];
   if(res.type==='income'||incomeCats.includes(res.cat)) return {cat:'Reembolso', type:'expense', refund:true};
@@ -2069,8 +2104,8 @@ function classifyTx(desc, amount, forceExclude, excludeLabel){
       // "EXCLUIDAS DEL BALANCE" — la transacción quedaba excluida del balance
       // pero invisible en cualquier panel.
       if(learned.cat==='Excluir') return {exclude:true, excludeLabel:'Excluido manualmente'};
-      const type=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'].includes(learned.cat)?'income':'expense';
-      return {cat:learned.cat, type};
+      const type=INCOME_CATS.includes(learned.cat)?'income':'expense';
+      return {cat:learned.cat, type, learned:true};
     }
   }
   // Then hardcoded rules
