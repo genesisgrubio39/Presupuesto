@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v14</title>
+<title>Presupuesto v16</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v14 · 2026-09-09</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v16 · 2026-09-09</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -500,7 +500,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v14 · 2026-09-09</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v16 · 2026-09-09</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -977,7 +977,7 @@ function renderRulesList(){
     <div class="item-row">
       <div class="item-row-main">
         <div class="item-info">
-          <span class="item-name" title="${String(r.keyword).replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${r.keyword}</span>
+          <span class="item-name" title="${String(r.keyword).replace(/"/g,'&quot;')}" style="white-space:normal;overflow:visible;text-overflow:clip">${r.keyword}${r.dir?`<span style="font-size:10px;color:var(--text3);margin-left:6px">${r.dir===1?'solo entradas':'solo salidas'}</span>`:''}</span>
         </div>
         ${(function(){const b=ruleBreadth(r.keyword);const corta=normRuleKey(r.keyword).length<24;
           return (b>=2&&corta)?`<span class="badge badge-exc" title="Clave corta que alcanza ${b} comercios distintos. Se creó con una versión anterior y probablemente está clasificando transacciones que no le corresponden — revísala o bórrala.">amplia · ${b}</span>`:'';})()}
@@ -1021,7 +1021,8 @@ function changeCatRule(idx, newCat){
     ()=>applyRuleToExisting(r.keyword, newCat)
   );
 }
-function applyRuleToExisting(keyword, newCat){
+function applyRuleToExisting(keyword, newCat, dir){
+  const mismoDir=it=>dir===undefined || (it.type==='income'?1:-1)===dir;
   const incomeCats=['Salario W-2','Freelance 1099','Trading – retiro','Zelle – Ingreso','Otro ingreso'];
   let changed=0, moved=0;
   Object.keys(appData).forEach(k=>{
@@ -1031,7 +1032,7 @@ function applyRuleToExisting(keyword, newCat){
     if(!d.excludedItems) d.excludedItems=[];
     const keep=[];
     d.items.forEach(it=>{
-      if(!itemMatchesRule(it.name,keyword)){ keep.push(it); return; }
+      if(!itemMatchesRule(it.name,keyword) || !mismoDir(it)){ keep.push(it); return; }
       if(newCat==='Excluir'){ // sale del balance, no es una categoría
         d.excludedItems.push({
           id:Date.now()+Math.random(), name:it.name, reason:'Excluido manualmente',
@@ -1191,9 +1192,9 @@ function saveEdit(id){
       return;
     }
     item.cat=newCat;
-    saveCategorizationRule(newName, newCat);
+    saveCategorizationRule(newName, newCat, item.type==='income'?1:-1);
     setCurrentData(data);markUnsaved();saveToDrive();renderMonthly();
-    offerApplyToExisting(newName, newCat);
+    offerApplyToExisting(newName, newCat, item.type==='income'?1:-1);
     return;
   }
   setCurrentData(data);markUnsaved();saveToDrive();renderMonthly();
@@ -1209,25 +1210,26 @@ function saveEditCat(id){
   if(newCat==='Excluir'){ moveItemToExcluded(id, item.name); return; }
   item.cat=newCat; // la dirección la fijó el signo del banco; cambiar la etiqueta no la invierte
   setCurrentData(data);
-  saveCategorizationRule(item.name, newCat);
+  saveCategorizationRule(item.name, newCat, item.type==='income'?1:-1);
   markUnsaved();saveToDrive();renderMonthly();
-  offerApplyToExisting(item.name, newCat);
+  offerApplyToExisting(item.name, newCat, item.type==='income'?1:-1);
 }
 // Corregir una transaccion guardaba la regla para el FUTURO, pero dejaba intactas
 // las ya cargadas: cambiar un "Amazon Logistics" a Freelance 1099 dejaba los otros
 // 20 como "Compras – Otro", y la correccion parecia no haberse guardado. Ahora se
 // cuenta cuantas iguales quedaron con otra categoria y se ofrece aplicarlo a todas.
-function offerApplyToExisting(name, newCat){
+function offerApplyToExisting(name, newCat, dir){
   const kw=String(name||'').toLowerCase().replace(/\s+/g,' ').trim().substring(0,32);
+  const mismo=it=>dir===undefined || (it.type==='income'?1:-1)===dir;
   let n=0;
   Object.keys(appData).forEach(k=>{ if(k.indexOf('budget_')!==0) return;
-    (appData[k].items||[]).forEach(it=>{ if(it.cat!==newCat && itemMatchesRule(it.name,kw)) n++; }); });
+    (appData[k].items||[]).forEach(it=>{ if(it.cat!==newCat && mismo(it) && itemMatchesRule(it.name,kw)) n++; }); });
   if(!n) return;
   showModal('Aplicar a las ya cargadas',
     'Hay <strong>'+n+'</strong> transaccion(es) igual(es) con otra categoria.<br><br>'+
     '<span style="font-size:12px;color:var(--text2)">Se cambiaran a <strong>'+newCat+'</strong>. '+
     'La direccion (ingreso o gasto) no se toca: la fijo el signo del banco.</span>',
-    ()=>{ applyRuleToExisting(kw,newCat); });
+    ()=>{ applyRuleToExisting(kw,newCat,dir); });
 }
 // "Excluir" no es una categoría: es sacar la transacción del balance. Antes solo
 // se le cambiaba la etiqueta a cat:'Excluir' y la transacción seguía sumando
@@ -2102,7 +2104,12 @@ function classifyTx(desc, amount, forceExclude, excludeLabel){
     // hacía que UNA regla aprendida sobre cualquier "Zelle payment ..." se
     // aplicara a TODAS las demás (a cualquier destinatario), pisando incluso
     // las reglas fijas de exclusión de transferencias internas.
-    const learned = appData.catRules.find(r=>itemMatchesRule(desc, r.keyword));
+    const _amt = parseFloat(String(amount).replace(/,/g,''));
+    const _dir = isNaN(_amt) ? null : (_amt>=0 ? 1 : -1);
+    const _cands = appData.catRules.filter(r=>itemMatchesRule(desc, r.keyword));
+    // Primero una regla del mismo sentido; si no hay, una regla sin sentido
+    // definido (las creadas antes de esta version).
+    const learned = _cands.find(r=>r.dir && r.dir===_dir) || _cands.find(r=>!r.dir);
     if(learned){
       // 'Excluir' es un estado de exclusión, no una categoría — debe devolver
       // exclude:true (igual que las reglas automáticas de CAT_RULES) para que
@@ -2460,6 +2467,9 @@ function catToType(cat){
 }
 function paintSel(el,newCat,activa){
   if(!el) return;
+  // Si la categoria no existe en ESE desplegable (las entradas y las salidas
+  // ofrecen listas distintas), asignarla dejaba el select en blanco.
+  if(el.options && ![...el.options].some(o=>o.value===newCat)) return;
   el.value=newCat;
   const bg = newCat==='Sin especificar'?'var(--amber-bg)' : newCat==='Excluir'?(activa?'var(--red-bg)':'var(--bg2)') : 'var(--green-bg)';
   const fg = newCat==='Sin especificar'?'var(--amber-text)': newCat==='Excluir'?(activa?'var(--red-text)':'var(--text3)') : 'var(--green-text)';
@@ -2471,14 +2481,22 @@ function paintSel(el,newCat,activa){
 // fila tocada: se aplica a cada fila con la misma descripcion en todos los meses
 // que el archivo genero (un estado de cuenta produce dos tarjetas de mes, y antes
 // la de al lado se quedaba con la categoria vieja). Devuelve cuantas cambio.
+// La propagacion NO puede cruzar la direccion del movimiento. Un mismo comercio
+// genera el cargo y su reembolso con la misma descripcion exacta: AUTOZONE 9318
+// aparece el 21/04 como -$102.84 (compra) y el 22/04 como +$102.84 (devolucion).
+// Propagar por descripcion sola convertia las dos en la misma categoria y hacia
+// imposible clasificarlas por separado. Solo se propaga entre filas del mismo signo.
 function propagateOverride(srcKey, srcIdx, desc, newCat){
   const kw=String(desc||'').toLowerCase().replace(/\s+/g,' ').trim().substring(0,32);
   const type=catToType(newCat);
+  const sgn=v=>parseFloat(String(v).replace(/,/g,''))>=0?1:-1;
+  const srcSgn=sgn((pendingTxByMonth[srcKey].rows[srcIdx]||{}).amount);
   let n=0;
   Object.keys(pendingTxByMonth||{}).forEach(k=>{
     const p=pendingTxByMonth[k]; if(!p||!p.rows) return;
     p.rows.forEach((r,i)=>{
       if(k===srcKey && i===srcIdx) return;
+      if(sgn(r.amount)!==srcSgn) return;
       if(!itemMatchesRule(r.desc, kw)) return;
       const act=document.getElementById('ptx-'+k+'-'+i);
       const exc=document.getElementById('pex-'+k+'-'+i);
@@ -2494,23 +2512,32 @@ function updateTxCat(key, rowIdx, newCat, selectEl){
   if(!pendingTxByMonth[key].overrides) pendingTxByMonth[key].overrides={};
   pendingTxByMonth[key].overrides[rowIdx]={cat:newCat, type:catToType(newCat)};
   paintSel(selectEl,newCat,true);
-  saveCategorizationRule(row.desc, newCat);
+  // Una regla aprendida se aplica a la descripcion, sin mirar el signo. Guardar
+  // "Reembolso" desde la fila de la devolucion haria que la COMPRA del mismo
+  // comercio se categorizara como reembolso en futuras importaciones. Las
+  // categorias que solo tienen sentido en una direccion no generan regla.
+  saveCategorizationRule(row.desc, newCat, parseFloat(String(row.amount).replace(/,/g,''))>=0?1:-1);
   const n=propagateOverride(key,rowIdx,row.desc,newCat);
   const pend=document.getElementById('imp-pend');
   if(pend && n) pend.innerHTML='&#10003; La misma categoria se aplico a '+n+' fila(s) igual(es) de esta vista previa.';
   offerApplyToExisting(row.desc, newCat);
 }
-function saveCategorizationRule(desc, cat){
+// Una regla se ata a la DIRECCION del movimiento, no solo a la descripcion.
+// AUTOZONE 9318 aparece dos veces con el texto identico: -$102.84 (la compra)
+// y +$102.84 (la devolucion). Con una sola regla por descripcion, clasificar la
+// devolucion como "Reembolso" arrastraba tambien a la compra. Ahora conviven dos
+// reglas para el mismo comercio, una por sentido. dir: -1 sale, +1 entra;
+// las reglas viejas sin dir siguen aplicando a ambos sentidos.
+function saveCategorizationRule(desc, cat, dir){
   if(!desc||!cat) return;
   if(!appData.catRules) appData.catRules=[];
-  // 32 caracteres normalizados: suficiente para distinguir destinatarios en
-  // descripciones que comparten prefijo ("Zelle payment to ...").
   const keyword=String(desc).toLowerCase().replace(/\s+/g,' ').trim().substring(0,32);
-  const existing=appData.catRules.find(r=>r.keyword===keyword);
+  const d = (dir===1||dir===-1) ? dir : undefined;
+  const existing=appData.catRules.find(r=>r.keyword===keyword && (r.dir||undefined)===d);
   if(existing){
     existing.cat=cat;
   } else {
-    appData.catRules.push({keyword, cat});
+    appData.catRules.push(d? {keyword, cat, dir:d} : {keyword, cat});
   }
   saveToDrive();
 }
@@ -2535,7 +2562,7 @@ function updateExcludedCat(key, rowIdx, newCat, selectEl){
   if(tr) tr.style.opacity='1';
   const row=pendingTxByMonth[key].rows[rowIdx];
   if(row){
-    saveCategorizationRule(row.desc, newCat);
+    saveCategorizationRule(row.desc, newCat, parseFloat(String(row.amount).replace(/,/g,''))>=0?1:-1);
     const n=propagateOverride(key,rowIdx,row.desc,newCat);
     const pend=document.getElementById('imp-pend');
     if(pend && n) pend.innerHTML='&#10003; La misma categoria se aplico a '+n+' fila(s) igual(es) de esta vista previa.';
