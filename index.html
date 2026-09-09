@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Presupuesto v13</title>
+<title>Presupuesto v14</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -184,7 +184,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <span class="topbar-title">Presupuesto</span>
-        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v13 · 2026-09-09</span>
+        <span id="build-tag" style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px" title="Versión del archivo que estás ejecutando">v14 · 2026-09-09</span>
         <div class="year-nav">
           <button class="btn btn-sm" onclick="changeYear(-1)">&#8592;</button>
           <span class="year-label" id="annual-year-label">2025</span>
@@ -500,7 +500,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:1}
     <span class="bc-link" onclick="goAnnual()">&#8592; Dashboard</span>
     <span style="color:var(--text3)">/</span>
     <span style="color:var(--text)">Importar estado de cuenta</span>
-    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v13 · 2026-09-09</span>
+    <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:99px;padding:2px 8px;margin-left:6px" title="Versión del archivo que estás ejecutando">v14 · 2026-09-09</span>
   </div>
   <!-- ACCOUNT CONFIG -->
   <div class="card">
@@ -896,15 +896,24 @@ function confirmResetAllMonths(){
     nExc+=((appData[k]&&appData[k].excludedItems)||[]).length;
   });
   if(!meses.length){alert('No hay meses con datos que borrar.');return;}
+  const nReglas=(appData.catRules||[]).length;
   showModal(
     'Empezar de cero',
     'Se borrarán <strong>'+meses.length+' meses</strong> con <strong>'+nItems+' transacciones cargadas</strong> y <strong>'+nExc+' excluidas</strong>.'
     +'<br><br><strong>SE BORRA:</strong> todo lo que esté dentro de los meses, incluidas las transacciones que hayas agregado a mano y las recurrentes.'
-    +'<br><strong>SE CONSERVA:</strong> tus cuentas guardadas, las reglas aprendidas y los snapshots de patrimonio por año.'
-    +'<br><br>Se descargará un <strong>backup JSON</strong> automáticamente antes de borrar. Esta acción no se puede deshacer desde la app.',
+    +'<br><strong>SE CONSERVA:</strong> tus cuentas guardadas y los snapshots de patrimonio por año.'
+    +'<br><br><label style="display:block;padding:10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--amber-bg);color:var(--amber-text);font-size:13px;cursor:pointer">'
+    +'<input type="checkbox" id="reset-rules" checked style="margin-right:6px">'
+    +'Borrar también las <strong>'+nReglas+' reglas aprendidas</strong>'
+    +'<span style="display:block;font-size:11px;margin-top:4px;font-weight:400">Una regla aprendida tiene PRIORIDAD sobre las reglas automáticas del programa. '
+    +'Reglas viejas sobreviven al borrado y siguen imponiendo la categoría anterior: por eso los movimientos de broker volvieron a contar dentro del balance '
+    +'pese a que el importador ya los excluye. Si vas a recargar todo, bórralas.</span></label>'
+    +'<br>Se descargará un <strong>backup JSON</strong> automáticamente antes de borrar. Esta acción no se puede deshacer desde la app.',
     ()=>{
+      const borrarReglas = (document.getElementById('reset-rules')||{}).checked;
       try{ exportJSON(); }catch(e){ console.error(e); }
       meses.forEach(k=>{ delete appData[k]; });
+      if(borrarReglas) appData.catRules=[];
       saveToDrive();
       goAnnual();
     }
@@ -2227,6 +2236,39 @@ function groupByMonth(rows){
 }
 let pendingTxByMonth = {};
 let currentImportMeta = {};
+// El selector de cuenta conserva la ultima seleccion entre archivos. Cargar
+// varios estados seguidos sin cambiarlo mandaba todo a la misma cuenta: en una
+// recarga real, 648 de 1.200 filas (54%) quedaron bajo "Eddymar 5642" cuando en
+// realidad eran de las tarjetas 4160, 4833, 3673 y de la cuenta 9206. El archivo
+// se importa igual, los totales del ano salen "creibles", y el error solo se ve
+// al contar filas por cuenta. Estas tres comprobaciones lo hacen imposible de
+// pasar por alto.
+// 1) Formato del archivo vs tipo de cuenta. Un CSV de tarjeta (Posted Date,
+//    Reference Number, Payee) no puede pertenecer a una cuenta de debito.
+function csvKind(text){
+  const head=String(text||'').split(/\r?\n/).slice(0,3).join(' ').toLowerCase();
+  if(/posted date/.test(head) && /reference number/.test(head)) return 'credito';
+  if(/beginning balance/.test(head) || /running bal/.test(head)) return 'debito';
+  return null;
+}
+// 2) Ultimos 4 digitos en el nombre del archivo (January2026_4160.csv).
+function last4FromFilename(name){
+  // Partir por lo que no sea digito: un match con /g consumia el separador y se
+  // saltaba el segundo numero ("August2026_4833" solo devolvia 2026).
+  const nums=String(name||'').split(/\D+/).filter(t=>t.length===4 && !/^20\d\d$/.test(t));
+  return nums.length?nums[nums.length-1]:null;
+}
+// Para los CSV de debito el nombre del archivo no trae el numero de cuenta.
+// Senal disponible: a que tarjetas paga ese estado. Si el archivo paga tarjetas
+// de otro titular que el de la cuenta elegida, casi seguro es el archivo del otro.
+function ownerHint(text){
+  const crds=[...String(text||'').matchAll(/\bCRD\s*(\d{4})\b/gi)].map(m=>m[1]);
+  if(!crds.length) return null;
+  const cuenta={};
+  crds.forEach(c=>{ const a=getAccounts().find(x=>String(x.last4)===c); if(a) cuenta[a.titular]=(cuenta[a.titular]||0)+1; });
+  const ent=Object.entries(cuenta).sort((a,b)=>b[1]-a[1]);
+  return ent.length?{titular:ent[0][0], n:ent[0][1], tarjetas:[...new Set(crds)]}:null;
+}
 function handleCSV(e){
   const file=e.target.files[0];
   if(!file) return;
@@ -2237,35 +2279,76 @@ function handleCSV(e){
   const reader=new FileReader();
   reader.onload=ev=>{
     const text=ev.target.result;
+    const wrap=document.getElementById('imp-preview');
+    const kind=csvKind(text);
+    const tipo=(acc.tipo||'').toLowerCase();
+    if(kind && tipo && kind!==tipo){
+      wrap.innerHTML='<div class="alert alert-danger"><strong>El archivo no corresponde a la cuenta seleccionada.</strong><br>'
+        +'<code>'+file.name+'</code> tiene formato de <strong>'+(kind==='credito'?'tarjeta de credito':'cuenta de debito')
+        +'</strong>, pero la cuenta elegida es <strong>'+accountDisplay(acc)+'</strong>.<br><br>'
+        +'Cambia la cuenta en el desplegable de arriba y vuelve a cargar el archivo. No se importo nada.</div>';
+      pendingTxByMonth={}; return;
+    }
+    const l4=last4FromFilename(file.name);
+    let aviso='';
+    if(l4 && acc.last4 && l4!==String(acc.last4)){
+      const otra=getAccounts().find(a=>String(a.last4)===l4);
+      wrap.innerHTML='<div class="alert alert-danger"><strong>Los ultimos 4 digitos no coinciden.</strong><br>'
+        +'<code>'+file.name+'</code> parece de la cuenta terminada en <strong>'+l4+'</strong>, '
+        +'pero la seleccionada termina en <strong>'+acc.last4+'</strong>.<br><br>'
+        +(otra?'Selecciona <strong>'+accountDisplay(otra)+'</strong> y vuelve a cargar el archivo.'
+              :'No tienes una cuenta guardada terminada en '+l4+'. Creala o corrige el nombre del archivo.')
+        +' No se importo nada.</div>';
+      pendingTxByMonth={}; return;
+    }
+    if(l4 && acc.last4 && l4===String(acc.last4)) aviso='&#10003; Los ultimos 4 digitos del archivo coinciden con la cuenta.';
+    if(!l4 && tipo==='debito'){
+      const h=ownerHint(text);
+      if(h && h.titular!==acc.titular){
+        wrap.innerHTML='<div class="alert alert-danger"><strong>Este archivo parece de otro titular.</strong><br>'
+          +'<code>'+file.name+'</code> paga las tarjetas '+h.tarjetas.map(t=>'••'+t).join(', ')
+          +', que estan a nombre de <strong>'+h.titular+'</strong>, pero la cuenta elegida es de <strong>'+acc.titular+'</strong>.<br><br>'
+          +'Corrige la cuenta arriba y vuelve a cargar el archivo. No se importo nada.</div>';
+        pendingTxByMonth={}; return;
+      }
+      if(h && h.titular===acc.titular) aviso='&#10003; Las tarjetas que paga este estado ('+h.tarjetas.map(t=>'••'+t).join(', ')+') son de '+acc.titular+'.';
+    }
     const rows=parseCSV(text);
     if(!rows||!rows.length){
-      document.getElementById('imp-preview').innerHTML='<div class="alert alert-danger">No se pudo leer el archivo. Verifica que sea el CSV de BofA.</div>';
+      wrap.innerHTML='<div class="alert alert-danger">No se pudo leer el archivo. Verifica que sea el CSV de BofA.</div>';
       return;
     }
     const grouped=groupByMonth(rows);
     pendingTxByMonth=grouped;
-    renderImportPreview(grouped);
+    renderImportPreview(grouped, aviso);
   };
   reader.readAsText(file);
   e.target.value='';
 }
 const importedThisSession=new Set();
-function renderImportPreview(grouped){
+function renderImportPreview(grouped, aviso){
   importedThisSession.clear();
   const wrap=document.getElementById('imp-preview');
   const keys=Object.keys(grouped).sort();
-  if(!keys.length){wrap.innerHTML='<div class="alert alert-warning">Sin transacciones encontradas.</div>';return;}
+  const destino=`<div class="alert" style="margin-bottom:12px;background:var(--bg2);border-left:4px solid var(--accent)">
+      <span style="font-size:12px;color:var(--text2)">Se importara a la cuenta</span>
+      <div style="font-size:16px;font-weight:700;margin-top:2px">${currentImportMeta.titular} &middot; ${currentImportMeta.banco}
+        ${currentImportMeta.tipo==='credito'?'crédito':'débito'} &bull;&bull;${currentImportMeta.id||'—'}</div>
+      ${aviso?`<div style="font-size:12px;color:var(--green);margin-top:4px">${aviso}</div>`:''}
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Si no es esta, cambia la cuenta arriba y vuelve a cargar el archivo.</div>
+    </div>`;
+  if(!keys.length){wrap.innerHTML=destino+'<div class="alert alert-warning">Sin transacciones encontradas.</div>';return;}
   // Todo ciclo de estado de cuenta cruza dos meses calendario, asi que un solo
   // archivo casi siempre produce DOS tarjetas de mes. Confirmar una y cerrar la
   // pagina descartaba la otra en silencio: asi quedo diciembre-2025 cargado a
   // medias (20 filas de 2 tarjetas, 32 filas de las otras 4 cuentas perdidas).
-  const aviso = keys.length>1 ? `<div class="alert alert-warning" style="margin-bottom:12px">
+  const banner = keys.length>1 ? `<div class="alert alert-warning" style="margin-bottom:12px">
       <strong>Este archivo contiene ${keys.length} meses.</strong>
       ${keys.map(k=>MONTHS[grouped[k].month]+' '+grouped[k].year+' ('+grouped[k].rows.length+')').join(' &middot; ')}.
       Cada uno se importa por separado: si solo confirmas uno, el resto NO se guarda.
       <span id="imp-pend" style="display:block;margin-top:4px;font-size:12px"></span>
     </div>` : '';
-  wrap.innerHTML=aviso+keys.map(key=>{
+  wrap.innerHTML=destino+banner+keys.map(key=>{
     const {year,month,rows}=grouped[key];
     const txs=rows.map(row=>{
       const cat=categorizeTx(row.desc, row.amount, row.forceExclude, row.excludeLabel, row.isRefund);
